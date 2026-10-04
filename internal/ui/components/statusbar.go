@@ -19,9 +19,9 @@ func RenderShortcuts(hints string) string {
 	parts := strings.Split(hints, "•")
 	var formatted []string
 
-	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.Text)
-	descStyle := lipgloss.NewStyle().Foreground(theme.Subtle)
-	bulletStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+	keyStyle := lipgloss.NewStyle().Foreground(theme.Subtle)
+	descStyle := lipgloss.NewStyle().Faint(true).Foreground(theme.Muted)
+	bulletStyle := lipgloss.NewStyle().Faint(true).Foreground(theme.Muted)
 
 	for _, p := range parts {
 		trimmed := strings.TrimSpace(p)
@@ -44,7 +44,7 @@ func RenderShortcuts(hints string) string {
 }
 
 // StatusBar renders the bottom status bar with the Crush-style shortcuts strip.
-// It is strictly limited to MaxHeight(1) to prevent terminal scrolling or pushing the header off-screen.
+// It is strictly limited to MaxHeight(1) and styled with Faint/subtle intensity for a smaller visual footprint.
 func StatusBar(context, hint string, width int) string {
 	if width <= 0 {
 		width = 80
@@ -67,7 +67,6 @@ func StatusBar(context, hint string, width int) string {
 		}
 
 		ctxBadge = lipgloss.NewStyle().
-			Bold(true).
 			Foreground(ctxColor).
 			Render(context) + " " + lipgloss.NewStyle().Foreground(theme.Muted).Render("•") + " "
 	}
@@ -78,6 +77,7 @@ func StatusBar(context, hint string, width int) string {
 	return lipgloss.NewStyle().
 		Width(width).
 		MaxHeight(1).
+		Faint(true).
 		Align(lipgloss.Center).
 		Padding(0, 1).
 		Render(barContent)
