@@ -1,5 +1,5 @@
 # Build
-dots
+/dots
 *.exe
 
 # Go
