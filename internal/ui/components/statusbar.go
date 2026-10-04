@@ -1,27 +1,73 @@
 package components
 
 import (
+	"strings"
+
 	"github.com/BitwiseSang/dots/internal/ui/theme"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// StatusBar renders the bottom status bar.
-func StatusBar(context, hint string, width int) string {
-	ctxStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1)
-	hintStyle := lipgloss.NewStyle().Padding(0, 1)
+// ShortcutItem represents an interactive keybinding and its description
+type ShortcutItem struct {
+	Key  string
+	Desc string
+}
 
-	ctxStr := ctxStyle.Render(context)
-	hintStr := hintStyle.Render(hint)
+// RenderShortcuts parses a list of shortcuts or string hints and renders them Crush-style:
+// "key desc • key desc"
+func RenderShortcuts(hints string) string {
+	parts := strings.Split(hints, "•")
+	var formatted []string
 
-	ctxWidth := lipgloss.Width(ctxStr)
-	hintWidth := lipgloss.Width(hintStr)
-	spacerWidth := width - ctxWidth - hintWidth
-	if spacerWidth < 0 {
-		spacerWidth = 0
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.Text)
+	descStyle := lipgloss.NewStyle().Foreground(theme.Subtle)
+	bulletStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed == "" {
+			continue
+		}
+
+		// Split on first space between key and action
+		words := strings.SplitN(trimmed, " ", 2)
+		if len(words) == 2 {
+			k := keyStyle.Render(words[0])
+			d := descStyle.Render(words[1])
+			formatted = append(formatted, k+" "+d)
+		} else {
+			formatted = append(formatted, descStyle.Render(trimmed))
+		}
 	}
-	spacer := lipgloss.NewStyle().Width(spacerWidth).Render("")
 
-	bar := lipgloss.JoinHorizontal(lipgloss.Top, ctxStr, spacer, hintStr)
+	return strings.Join(formatted, bulletStyle.Render("  •  "))
+}
 
-	return theme.StatusBarStyle.Width(width).Render(bar)
+// StatusBar renders the bottom status bar with a dot separator on top
+// followed by the Crush-style shortcuts strip.
+func StatusBar(context, hint string, width int) string {
+	if width <= 0 {
+		width = 80
+	}
+
+	separator := theme.DotsSeparator(width)
+
+	ctxBadge := ""
+	if context != "" {
+		ctxBadge = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(theme.Secondary).
+			Render(context) + " " + lipgloss.NewStyle().Foreground(theme.Muted).Render("•") + " "
+	}
+
+	shortcuts := RenderShortcuts(hint)
+	barContent := ctxBadge + shortcuts
+
+	centeredBar := lipgloss.NewStyle().
+		Width(width).
+		Align(lipgloss.Center).
+		Padding(0, 1).
+		Render(barContent)
+
+	return lipgloss.JoinVertical(lipgloss.Center, separator, centeredBar)
 }
