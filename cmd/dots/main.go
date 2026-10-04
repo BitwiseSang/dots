@@ -32,12 +32,35 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !config.ConfigExists() {
+				return runTUI(views.ViewWizard)
+			}
 			return runTUI(views.ViewHome)
 		},
 	}
 
 	rootCmd.PersistentFlags().StringVarP(&editorFlag, "editor", "e", "", "Editor command to use (overrides config and $EDITOR)")
 	rootCmd.PersistentFlags().StringVarP(&repoFlag, "repo", "r", "", "Path to dotfiles repository (overrides config)")
+
+	initCmd := &cobra.Command{
+		Use:   "init",
+		Short: "Interactive setup wizard to initialize dots and your repository",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTUI(views.ViewWizard)
+		},
+	}
+
+	addCmd := &cobra.Command{
+		Use:   "add [path]",
+		Short: "Add and track a new configuration interactively",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := ""
+			if len(args) > 0 {
+				path = args[0]
+			}
+			return runTUIWithPath(views.ViewAddConfig, path)
+		},
+	}
 
 	backupCmd := &cobra.Command{
 		Use:   "backup",
@@ -85,6 +108,8 @@ When [name] is omitted, launches the interactive TUI edit selection menu.`,
 		},
 	}
 
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(addCmd)
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(editCmd)
@@ -110,12 +135,16 @@ func loadAppConfig() (*config.Config, error) {
 }
 
 func runTUI(initialView views.ViewType) error {
+	return runTUIWithPath(initialView, "")
+}
+
+func runTUIWithPath(initialView views.ViewType, path string) error {
 	cfg, err := loadAppConfig()
 	if err != nil {
 		return err
 	}
 
-	appModel := ui.NewApp(cfg, initialView)
+	appModel := ui.NewAppWithPath(cfg, initialView, path)
 	p := tea.NewProgram(appModel, tea.WithAltScreen())
 
 	_, err = p.Run()

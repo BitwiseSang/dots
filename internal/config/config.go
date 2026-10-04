@@ -110,3 +110,26 @@ func Save(cfg *Config) error {
 
 	return os.WriteFile(configPath, data, 0644)
 }
+
+// ConfigExists reports whether ~/.config/dots/config.toml already exists.
+func ConfigExists() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	configPath := filepath.Join(home, ".config", "dots", "config.toml")
+	_, err = os.Stat(configPath)
+	return err == nil
+}
+
+// AddDotfile adds a spec to cfg.Dotfiles if not already present by name, or updates it.
+func (c *Config) AddDotfile(spec DotfileSpec) bool {
+	for i, d := range c.Dotfiles {
+		if strings.EqualFold(d.Name, spec.Name) {
+			c.Dotfiles[i] = spec
+			return false // replaced existing
+		}
+	}
+	c.Dotfiles = append(c.Dotfiles, spec)
+	return true // added new
+}

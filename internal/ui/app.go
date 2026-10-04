@@ -28,6 +28,8 @@ type AppModel struct {
 	setup       views.SetupModel
 	edit        views.EditModel
 	browse      views.BrowseModel
+	addConfig   views.AddConfigModel
+	wizard      views.WizardModel
 	cfg         *config.Config
 	entries     []dotfile.Entry
 	width       int
@@ -53,12 +55,22 @@ func NewApp(cfg *config.Config, initialView views.ViewType) AppModel {
 		setup:       views.NewSetupModel(entries, cfg),
 		edit:        views.NewEditModel(entries, cfg),
 		browse:      views.NewBrowseModel(cfg),
+		addConfig:   views.NewAddConfigModel(cfg),
+		wizard:      views.NewWizardModel(cfg),
 		cfg:         cfg,
 		entries:     entries,
 		spring:      spring,
 		springPos:   0.0,
 		springVel:   0.0,
 	}
+}
+
+func NewAppWithPath(cfg *config.Config, initialView views.ViewType, path string) AppModel {
+	app := NewApp(cfg, initialView)
+	if initialView == views.ViewAddConfig && path != "" {
+		app.addConfig.PreFill(path)
+	}
+	return app
 }
 
 func (m AppModel) Init() tea.Cmd {
@@ -69,6 +81,8 @@ func (m AppModel) Init() tea.Cmd {
 		m.setup.Init(),
 		m.edit.Init(),
 		m.browse.Init(),
+		m.addConfig.Init(),
+		m.wizard.Init(),
 	)
 }
 
@@ -101,6 +115,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case views.ViewBrowse:
 			m.browse, cmd = m.browse.Update(msg)
 			cmds = append(cmds, cmd)
+		case views.ViewAddConfig:
+			m.addConfig, cmd = m.addConfig.Update(msg)
+			cmds = append(cmds, cmd)
+		case views.ViewWizard:
+			m.wizard, cmd = m.wizard.Update(msg)
+			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
 
@@ -119,12 +139,21 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, childCmd)
 		m.browse, childCmd = m.browse.Update(msg)
 		cmds = append(cmds, childCmd)
+		m.addConfig, childCmd = m.addConfig.Update(msg)
+		cmds = append(cmds, childCmd)
+		m.wizard, childCmd = m.wizard.Update(msg)
+		cmds = append(cmds, childCmd)
 
 	case tea.KeyMsg:
 		// Universal quit with 'q' or Ctrl+C from ANY page/view
 		if msg.Type == tea.KeyCtrlC || msg.String() == "q" {
-			m.quitting = true
-			return m, tea.Quit
+			// Do not quit with 'q' if user is currently typing in an input field
+			if m.currentView == views.ViewAddConfig || m.currentView == views.ViewWizard {
+				// Let child view handle typing
+			} else {
+				m.quitting = true
+				return m, tea.Quit
+			}
 		}
 
 	case views.NavigateMsg:
@@ -140,6 +169,27 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.backup.Reset(m.entries)
 		} else if msg.View == views.ViewSetup {
 			m.setup.Reset(m.entries)
+		} else if msg.View == views.ViewAddConfig {
+			m.addConfig = views.NewAddConfigModel(m.cfg)
+			if msg.Path != "" {
+				m.addConfig.PreFill(msg.Path)
+			}
+		} else if msg.View == views.ViewWizard {
+			m.wizard = views.NewWizardModel(m.cfg)
+			initCmd = m.wizard.Init()
+		} else if msg.View == views.ViewHome {
+			// Reload entries in case new configs were added
+			m.entries = dotfile.LoadEntries(m.cfg)
+			m.home = views.NewHomeModel(m.cfg.RepoPath)
+			m.backup = views.NewBackupModel(m.entries, m.cfg)
+			m.setup = views.NewSetupModel(m.entries, m.cfg)
+			m.edit = views.NewEditModel(m.entries, m.cfg)
+
+			sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
+			m.home, _ = m.home.Update(sizeMsg)
+			m.backup, _ = m.backup.Update(sizeMsg)
+			m.setup, _ = m.setup.Update(sizeMsg)
+			m.edit, _ = m.edit.Update(sizeMsg)
 		}
 		m.springPos = 0.0
 		m.springVel = 0.0
@@ -188,6 +238,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.ViewBrowse:
 		m.browse, cmd = m.browse.Update(msg)
 		cmds = append(cmds, cmd)
+	case views.ViewAddConfig:
+		m.addConfig, cmd = m.addConfig.Update(msg)
+		cmds = append(cmds, cmd)
+	case views.ViewWizard:
+		m.wizard, cmd = m.wizard.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -209,6 +265,10 @@ func (m AppModel) View() string {
 		return m.edit.View()
 	case views.ViewBrowse:
 		return m.browse.View()
+	case views.ViewAddConfig:
+		return m.addConfig.View()
+	case views.ViewWizard:
+		return m.wizard.View()
 	default:
 		return m.home.View()
 	}

@@ -202,7 +202,34 @@ func (s Selector) View() string {
 		return b.String()
 	}
 
-	for i, actualIdx := range s.filteredIndices {
+	start := 0
+	end := len(s.filteredIndices)
+	if s.height > 0 {
+		avail := s.height
+		if s.filtering || s.filterQuery != "" {
+			avail -= 2
+		}
+		if avail < 2 {
+			avail = 2
+		}
+		if len(s.filteredIndices) > avail {
+			start = s.cursor - avail/2
+			if start < 0 {
+				start = 0
+			}
+			end = start + avail
+			if end > len(s.filteredIndices) {
+				end = len(s.filteredIndices)
+				start = end - avail
+				if start < 0 {
+					start = 0
+				}
+			}
+		}
+	}
+
+	for i := start; i < end; i++ {
+		actualIdx := s.filteredIndices[i]
 		item := s.Items[actualIdx]
 		isCursor := i == s.cursor
 
@@ -231,7 +258,7 @@ func (s Selector) View() string {
 		}
 
 		// Item Name - fixed width 18
-		nameStyle := lipgloss.NewStyle().Width(18)
+		nameStyle := lipgloss.NewStyle().Width(18).MaxHeight(1)
 		if isCursor {
 			nameStyle = nameStyle.Foreground(s.ActiveColor).Bold(true)
 		} else if item.Selected {
@@ -243,7 +270,7 @@ func (s Selector) View() string {
 
 		// Status formatting with fixed width 18
 		statusDesc := item.Desc
-		statusStyle := lipgloss.NewStyle().Width(18)
+		statusStyle := lipgloss.NewStyle().Width(18).MaxHeight(1)
 		switch {
 		case strings.Contains(statusDesc, "In sync"):
 			statusStr := lipgloss.NewStyle().Foreground(theme.Success).Render(theme.IconInSync + " In sync")
@@ -279,7 +306,7 @@ func (s Selector) View() string {
 		)
 
 		b.WriteString(line)
-		if i < len(s.filteredIndices)-1 {
+		if i < end-1 {
 			b.WriteString("\n")
 		}
 	}

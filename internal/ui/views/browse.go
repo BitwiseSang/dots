@@ -275,6 +275,14 @@ func (m BrowseModel) Update(msg tea.Msg) (BrowseModel, tea.Cmd) {
 				return NavigateMsg{View: ViewEdit}
 			}
 
+		case "a":
+			if len(m.filteredIndices) > 0 {
+				item := m.items[m.filteredIndices[m.cursor]]
+				return m, func() tea.Msg {
+					return NavigateMsg{View: ViewAddConfig, Path: item.path}
+				}
+			}
+
 		case "h", "backspace", "left":
 			parent := filepath.Dir(m.currentDir)
 			if parent != "" && parent != m.currentDir {
@@ -451,7 +459,7 @@ func (m BrowseModel) View() string {
 	} else if m.filterQuery != "" {
 		statusHint = "enter open • / search • esc clear • h parent • tab edit • q quit"
 	} else {
-		statusHint = "enter open • / search • o nvim • h parent • tab edit • esc home • q quit"
+		statusHint = "enter open • a track • / search • o nvim • h parent • tab edit • q quit"
 	}
 
 	statusBar := components.StatusBar("Browse", statusHint, m.width)

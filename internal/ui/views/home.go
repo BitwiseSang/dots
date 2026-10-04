@@ -17,6 +17,8 @@ const (
 	ViewSetup
 	ViewEdit
 	ViewBrowse
+	ViewAddConfig
+	ViewWizard
 )
 
 type NavigateMsg struct {
@@ -49,7 +51,8 @@ func NewHomeModel(repoPath string) HomeModel {
 			{key: "b", icon: theme.IconBackup, title: "Backup", desc: "Sync system configs into repo", view: ViewBackup},
 			{key: "s", icon: theme.IconSetup, title: "Setup", desc: "Symlink repo configs to system", view: ViewSetup},
 			{key: "e", icon: theme.IconEdit, title: "Edit", desc: "Open configs in your editor", view: ViewEdit},
-			{key: "f", icon: theme.IconBrowse, title: "Browse", desc: "Explore filesystem with file picker", view: ViewBrowse},
+			{key: "a", icon: "", title: "Add", desc: "Track a new configuration", view: ViewAddConfig},
+			{key: "f", icon: theme.IconBrowse, title: "Browse", desc: "Explore filesystem & track configs", view: ViewBrowse},
 		},
 		cursor:   0,
 		repoPath: repoPath,
@@ -90,6 +93,8 @@ func (m HomeModel) Update(msg tea.Msg) (HomeModel, tea.Cmd) {
 			return m, func() tea.Msg { return NavigateMsg{View: ViewSetup} }
 		case "e":
 			return m, func() tea.Msg { return NavigateMsg{View: ViewEdit} }
+		case "a":
+			return m, func() tea.Msg { return NavigateMsg{View: ViewAddConfig} }
 		case "f":
 			return m, func() tea.Msg { return NavigateMsg{View: ViewBrowse} }
 		}
@@ -172,7 +177,7 @@ func (m HomeModel) View() string {
 		PaddingBottom(1).
 		Render(menuBuilder.String())
 
-	statusBar := components.StatusBar("Home", "enter select • b backup • s setup • e edit • f browse • q quit", m.width)
+	statusBar := components.StatusBar("Home", "enter select • b backup • s setup • e edit • a add • f browse • q quit", m.width)
 	topBlock := lipgloss.JoinVertical(lipgloss.Left, header, "", menu)
 	return components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
 }
