@@ -36,28 +36,36 @@ type BackupModel struct {
 	width     int
 	height    int
 	gitPrompt string
+	animStep  int
 }
 
 func NewBackupModel(entries []dotfile.Entry, cfg *config.Config) BackupModel {
 	items := make([]components.SelectorItem, len(entries))
 	for i, e := range entries {
 		items[i] = components.SelectorItem{
-			Name: e.Name,
-			Desc: e.StatusLabel(),
+			Name:  e.Name,
+			Desc:  e.StatusLabel(),
+			Path:  e.ResolveSystemPath(),
+			IsDir: e.IsDir,
 		}
 	}
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(theme.Accent)
+	sp.Style = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
+
+	sel := components.NewSelector(items)
+	sel.ActiveColor = theme.Secondary // Electric Cyan for Backup
+	sel.CheckColor = theme.Success    // Emerald
 
 	return BackupModel{
 		entries:  entries,
 		cfg:      cfg,
 		phase:    phaseSelect,
-		selector: components.NewSelector(items),
+		selector: sel,
 		spinner:  sp,
 		vp:       viewport.New(0, 0),
+		animStep: 0,
 	}
 }
 
@@ -73,12 +81,18 @@ func (m BackupModel) Update(msg tea.Msg) (BackupModel, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case TickMsg:
+		m.animStep++
+		var spinCmd tea.Cmd
+		m.spinner, spinCmd = m.spinner.Update(msg)
+		return m, spinCmd
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.selector.SetSize(msg.Width, msg.Height-4)
+		m.selector.SetSize(msg.Width, msg.Height-14)
 		m.vp.Width = msg.Width - 4
-		m.vp.Height = msg.Height - 6
+		m.vp.Height = msg.Height - 16
 
 	case backupDoneMsg:
 		m.results = msg
@@ -100,82 +114,96 @@ func (m BackupModel) Update(msg tea.Msg) (BackupModel, tea.Cmd) {
 		return m, nil
 
 	case gitDoneMsg:
-		if m.gitPrompt == "commit" && m.cfg.Git.AutoPush {
-			m.gitPrompt = "push"
-		} else {
-			m.phase = phaseDone
-		}
+		m.phase = phaseDone
 		return m, nil
 
-	case tea.KeyMsg:
-		if msg.String() == "esc" {
-			if m.phase == phaseSelect {
-				return m, func() tea.Msg { return NavigateMsg{View: ViewHome} }
-			} else if m.phase == phaseDiff {
-				m.phase = phaseSelect
-				return m, nil
-			}
+	case spinner.TickMsg:
+		if m.phase == phaseExecute {
+			m.spinner, cmd = m.spinner.Update(msg)
+			cmds = append(cmds, cmd)
 		}
 
+	case tea.KeyMsg:
 		switch m.phase {
 		case phaseSelect:
-			if msg.String() == "enter" {
+			switch msg.String() {
+			case "esc":
+				return m, func() tea.Msg {
+					return NavigateMsg{View: ViewHome}
+				}
+			case "enter":
 				selected := m.selector.SelectedIndices()
 				if len(selected) > 0 {
 					m.phase = phaseDiff
 					m.vp.SetContent(m.generateDiff(selected))
+					return m, nil
 				}
-				return m, nil
 			}
 			m.selector, cmd = m.selector.Update(msg)
 			cmds = append(cmds, cmd)
 
 		case phaseDiff:
-			if msg.String() == "enter" {
+			switch msg.String() {
+			case "esc":
+				m.phase = phaseSelect
+				return m, nil
+			case "enter":
 				m.phase = phaseExecute
-
-				selected := m.selector.SelectedIndices()
-				var toBackup []dotfile.Entry
-				for _, idx := range selected {
-					toBackup = append(toBackup, m.entries[idx])
-				}
-
-				return m, func() tea.Msg {
-					res := dotfile.BackupAll(toBackup)
-					return backupDoneMsg(res)
-				}
+				return m, tea.Batch(
+					m.spinner.Tick,
+					func() tea.Msg {
+						var targets []dotfile.Entry
+						for _, idx := range m.selector.SelectedIndices() {
+							targets = append(targets, m.entries[idx])
+						}
+						results := dotfile.BackupAll(targets)
+						return backupDoneMsg(results)
+					},
+				)
 			}
 			m.vp, cmd = m.vp.Update(msg)
 			cmds = append(cmds, cmd)
 
 		case phaseGit:
-			if msg.String() == "y" || msg.String() == "Y" {
-				prompt := m.gitPrompt
-				return m, func() tea.Msg {
-					if prompt == "commit" {
-						msg := git.CommitMessage(m.cfg.Git.CommitPrefix)
-						git.Add(m.cfg.RepoPath)
-						git.Commit(m.cfg.RepoPath, msg)
-					} else if prompt == "push" {
-						git.Push(m.cfg.RepoPath)
+			switch strings.ToLower(msg.String()) {
+			case "y":
+				if m.gitPrompt == "commit" {
+					repoPath := config.ExpandPath(m.cfg.RepoPath)
+					msg := git.CommitMessage(m.cfg.Git.CommitPrefix)
+					if err := git.Add(repoPath); err != nil {
+						m.phase = phaseDone
+						return m, nil
 					}
-					return gitDoneMsg{}
+					if err := git.Commit(repoPath, msg); err != nil {
+						m.phase = phaseDone
+						return m, nil
+					}
+					if m.cfg.Git.AutoPush {
+						_ = git.Push(repoPath)
+						m.phase = phaseDone
+						return m, nil
+					}
+					m.gitPrompt = "push"
+					return m, nil
+				} else if m.gitPrompt == "push" {
+					repoPath := config.ExpandPath(m.cfg.RepoPath)
+					_ = git.Push(repoPath)
+					m.phase = phaseDone
+					return m, nil
 				}
-			} else if msg.String() == "n" || msg.String() == "N" {
+			case "n", "esc":
 				m.phase = phaseDone
 				return m, nil
 			}
 
 		case phaseDone:
-			if msg.String() == "enter" || msg.String() == "esc" {
-				return m, func() tea.Msg { return NavigateMsg{View: ViewHome} }
+			switch msg.String() {
+			case "enter", "esc":
+				return m, func() tea.Msg {
+					return NavigateMsg{View: ViewHome}
+				}
 			}
 		}
-	}
-
-	if m.phase == phaseExecute {
-		m.spinner, cmd = m.spinner.Update(msg)
-		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -187,12 +215,12 @@ func (m BackupModel) generateDiff(indices []int) string {
 		entry := m.entries[idx]
 		d, err := dotfile.Diff(entry)
 		if err != nil {
-			b.WriteString(theme.ErrorStyle.Render(fmt.Sprintf("Error diffing %s: %v\n", entry.Name, err)))
+			b.WriteString(theme.ErrorStyle.Render(fmt.Sprintf("%s Error diffing %s: %v\n", theme.IconChanged, entry.Name, err)))
 			continue
 		}
 
 		if d == "" {
-			b.WriteString(theme.MutedStyle.Render(fmt.Sprintf("No changes for %s\n", entry.Name)))
+			b.WriteString(theme.MutedStyle.Render(fmt.Sprintf("%s No changes for %s\n", theme.IconInSync, entry.Name)))
 			continue
 		}
 
@@ -214,55 +242,75 @@ func (m BackupModel) generateDiff(indices []int) string {
 }
 
 func (m BackupModel) View() string {
-	header := components.Header(m.width)
+	header := components.Header(m.width, m.animStep)
 	var content string
 	var statusHint string
 
 	switch m.phase {
 	case phaseSelect:
-		content = lipgloss.NewStyle().Padding(2, 4).Render(m.selector.View())
-		statusHint = "space toggle • a toggle all • enter proceed • esc back"
+		title := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(theme.Secondary).
+			Render("Select configurations to back up into repository:")
+		content = lipgloss.JoinVertical(
+			lipgloss.Left,
+			"  "+title,
+			"",
+			m.selector.View(),
+		)
+		statusHint = "space toggle • a toggle all • enter view diff • esc back"
 
 	case phaseDiff:
-		content = lipgloss.NewStyle().Padding(2, 4).Render(m.vp.View())
+		diffTitle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(theme.Secondary).
+			Render("Diff Preview (System ↔ Repository):")
+		content = lipgloss.JoinVertical(
+			lipgloss.Left,
+			"  "+diffTitle,
+			"",
+			m.vp.View(),
+		)
 		statusHint = "up/down scroll • enter confirm backup • esc back"
 
 	case phaseExecute:
-		content = lipgloss.NewStyle().Padding(4, 4).Render(
-			fmt.Sprintf("%s Backing up %d items...", m.spinner.View(), len(m.selector.SelectedIndices())),
+		content = lipgloss.NewStyle().Padding(3, 4).Render(
+			fmt.Sprintf("%s Backing up %d items into repository...", m.spinner.View(), len(m.selector.SelectedIndices())),
 		)
 		statusHint = "Executing..."
 
 	case phaseGit:
-		prompt := fmt.Sprintf("Commit changes to git? (y/n)")
+		prompt := fmt.Sprintf("%s Commit changes to git repository? (y/n)", theme.IconGit)
 		if m.gitPrompt == "push" {
-			prompt = fmt.Sprintf("Push changes to remote? (y/n)")
+			prompt = fmt.Sprintf("%s Push committed changes to remote? (y/n)", theme.IconGit)
 		}
-		content = lipgloss.NewStyle().Padding(4, 4).Render(prompt)
+		content = lipgloss.NewStyle().Padding(3, 4).Render(
+			lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render(prompt),
+		)
 		statusHint = "y yes • n no"
 
 	case phaseDone:
 		var b strings.Builder
-		b.WriteString("Backup complete:\n\n")
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.Success).Render("Backup Complete:\n\n"))
 		for _, r := range m.results {
-			icon := theme.SuccessStyle.Render("✓")
-			status := "Success"
+			icon := lipgloss.NewStyle().Foreground(theme.Success).Render(theme.IconInSync)
+			status := "Synced"
 			if r.Err != nil {
-				icon = theme.ErrorStyle.Render("✗")
+				icon = lipgloss.NewStyle().Foreground(theme.Error).Render(theme.IconChanged)
 				status = r.Err.Error()
 			} else if r.Skipped {
-				icon = theme.MutedStyle.Render("-")
+				icon = lipgloss.NewStyle().Foreground(theme.Muted).Render("-")
 				status = "Skipped"
 			}
 
-			b.WriteString(fmt.Sprintf("%s %s: %s\n", icon, r.Entry.Name, status))
+			b.WriteString(fmt.Sprintf("  %s %s: %s\n", icon, lipgloss.NewStyle().Bold(true).Render(r.Entry.Name), status))
 		}
 		content = lipgloss.NewStyle().Padding(2, 4).Render(b.String())
-		statusHint = "enter/esc return to home"
+		statusHint = "enter/esc return home"
 	}
 
 	contentHeight := lipgloss.Height(content) + lipgloss.Height(header)
-	padHeight := m.height - contentHeight - 1
+	padHeight := m.height - contentHeight - 3
 	if padHeight < 0 {
 		padHeight = 0
 	}

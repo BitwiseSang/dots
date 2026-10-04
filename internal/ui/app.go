@@ -2,15 +2,23 @@ package ui
 
 import (
 	"os/exec"
+	"time"
 
 	"github.com/BitwiseSang/dots/internal/config"
 	"github.com/BitwiseSang/dots/internal/dotfile"
 	"github.com/BitwiseSang/dots/internal/ui/views"
+	"github.com/charmbracelet/harmonica"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type editorFinishedMsg struct {
 	err error
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Millisecond*60, func(t time.Time) tea.Msg {
+		return views.TickMsg{}
+	})
 }
 
 type AppModel struct {
@@ -24,24 +32,42 @@ type AppModel struct {
 	width       int
 	height      int
 	quitting    bool
+
+	// Harmonica spring simulation for smooth view transition animations
+	spring      harmonica.Spring
+	springPos   float64
+	springVel   float64
 }
 
 func NewApp(cfg *config.Config, initialView views.ViewType) AppModel {
 	entries := dotfile.LoadEntries(cfg)
+
+	// Harmonic spring for smooth damping transitions
+	spring := harmonica.NewSpring(harmonica.FPS(30), 6.0, 0.7)
+
+	editView := views.NewEditModel(entries, cfg)
+	if initialView == views.ViewBrowse {
+		editView.SetMode(1) // Open directly in filepicker mode
+		initialView = views.ViewEdit
+	}
 
 	return AppModel{
 		currentView: initialView,
 		home:        views.NewHomeModel(),
 		backup:      views.NewBackupModel(entries, cfg),
 		setup:       views.NewSetupModel(entries, cfg),
-		edit:        views.NewEditModel(entries, cfg),
+		edit:        editView,
 		cfg:         cfg,
 		entries:     entries,
+		spring:      spring,
+		springPos:   0.0,
+		springVel:   0.0,
 	}
 }
 
 func (m AppModel) Init() tea.Cmd {
 	return tea.Batch(
+		tickCmd(),
 		m.home.Init(),
 		m.backup.Init(),
 		m.setup.Init(),
@@ -54,6 +80,30 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case views.TickMsg:
+		// Advance spring physics
+		m.springPos, m.springVel = m.spring.Update(m.springPos, m.springVel, 1.0)
+
+		// Loop animation tick
+		cmds = append(cmds, tickCmd())
+
+		// Forward tick to active child view to update header gradient and spinners
+		switch m.currentView {
+		case views.ViewHome:
+			m.home, cmd = m.home.Update(msg)
+			cmds = append(cmds, cmd)
+		case views.ViewBackup:
+			m.backup, cmd = m.backup.Update(msg)
+			cmds = append(cmds, cmd)
+		case views.ViewSetup:
+			m.setup, cmd = m.setup.Update(msg)
+			cmds = append(cmds, cmd)
+		case views.ViewEdit:
+			m.edit, cmd = m.edit.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -75,7 +125,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case views.NavigateMsg:
-		m.currentView = msg.View
+		if msg.View == views.ViewBrowse {
+			m.edit.SetMode(1) // switch to filepicker in edit view
+			m.currentView = views.ViewEdit
+		} else {
+			m.currentView = msg.View
+		}
+		// Reset spring on view transition
+		m.springPos = 0.0
+		m.springVel = 0.0
 		return m, nil
 
 	case views.OpenEditorMsg:
