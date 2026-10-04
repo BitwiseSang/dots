@@ -40,10 +40,11 @@ func RenderShortcuts(hints string) string {
 		}
 	}
 
-	return strings.Join(formatted, bulletStyle.Render("  •  "))
+	return strings.Join(formatted, bulletStyle.Render(" • "))
 }
 
 // StatusBar renders the bottom status bar with the Crush-style shortcuts strip.
+// It is strictly limited to MaxHeight(1) to prevent terminal scrolling or pushing the header off-screen.
 func StatusBar(context, hint string, width int) string {
 	if width <= 0 {
 		width = 80
@@ -76,7 +77,27 @@ func StatusBar(context, hint string, width int) string {
 
 	return lipgloss.NewStyle().
 		Width(width).
+		MaxHeight(1).
 		Align(lipgloss.Center).
 		Padding(0, 1).
 		Render(barContent)
+}
+
+// PlacePinnedStatusBar joins the top content block and status bar, inserting blank lines if targetHeight > used,
+// ensuring the output NEVER exceeds targetHeight (preventing terminal scrolling and header clipping).
+func PlacePinnedStatusBar(topBlock, statusBar string, targetHeight int) string {
+	if targetHeight <= 0 {
+		return lipgloss.JoinVertical(lipgloss.Top, topBlock, statusBar)
+	}
+	topHeight := lipgloss.Height(topBlock)
+	statusHeight := lipgloss.Height(statusBar)
+	totalUsed := topHeight + statusHeight
+
+	if totalUsed >= targetHeight {
+		return lipgloss.JoinVertical(lipgloss.Top, topBlock, statusBar)
+	}
+
+	gap := targetHeight - totalUsed
+	gapLines := strings.Repeat("\n", gap-1)
+	return lipgloss.JoinVertical(lipgloss.Top, topBlock, gapLines, statusBar)
 }

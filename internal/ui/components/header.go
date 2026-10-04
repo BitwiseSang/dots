@@ -33,9 +33,11 @@ func getGitBranchIn(dir string) string {
 	return "main"
 }
 
-// Header renders the Crush-inspired top header bar with the massive gradient logo,
+// Header renders the Crush-inspired top header bar with the gradient logo,
 // diagonal hatching, version badge, dotfiles git repository breadcrumbs, and 3 animated dots.
-func Header(width, step int, repoPath string) string {
+// When height < 28, it automatically collapses into a compact responsive header (omitting the
+// 6-line ASCII text) to ensure the top bar, breadcrumb, and dots separator are always visible.
+func Header(width, height, step int, repoPath string) string {
 	if width <= 0 {
 		width = 80
 	}
@@ -68,9 +70,6 @@ func Header(width, step int, repoPath string) string {
 		badgeRight +
 		hatchStyle.Render(strings.Repeat("/", rightHatchLen))
 
-	// Animated gradient logo
-	gradientLogo := theme.RenderGradientLogo(step)
-
 	// Breadcrumb: branch • dotfiles repo path
 	branch := getGitBranchIn(absRepoPath)
 
@@ -91,20 +90,39 @@ func Header(width, step int, repoPath string) string {
 	// 3 centered animated gradient dots matching the title
 	threeDots := theme.AnimatedThreeDots(step)
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Center,
-		topBar,
-		"",
-		gradientLogo,
-		"",
-		breadcrumb,
-		"",
-		threeDots,
-	)
+	isCompact := height > 0 && height < 28
+	var content string
 
-	return lipgloss.NewStyle().
+	if isCompact {
+		content = lipgloss.JoinVertical(
+			lipgloss.Center,
+			topBar,
+			"",
+			breadcrumb,
+			"",
+			threeDots,
+		)
+	} else {
+		gradientLogo := theme.RenderGradientLogo(step)
+		content = lipgloss.JoinVertical(
+			lipgloss.Center,
+			topBar,
+			"",
+			gradientLogo,
+			"",
+			breadcrumb,
+			"",
+			threeDots,
+		)
+	}
+
+	style := lipgloss.NewStyle().
 		Width(width).
-		Align(lipgloss.Center).
-		PaddingTop(1).
-		Render(content)
+		Align(lipgloss.Center)
+
+	if !isCompact {
+		style = style.PaddingTop(1)
+	}
+
+	return style.Render(content)
 }

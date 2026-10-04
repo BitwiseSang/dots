@@ -98,7 +98,7 @@ func (m HomeModel) Update(msg tea.Msg) (HomeModel, tea.Cmd) {
 }
 
 func (m HomeModel) View() string {
-	header := components.Header(m.width, m.animStep, m.repoPath)
+	header := components.Header(m.width, m.height, m.animStep, m.repoPath)
 
 	// Block width: cursor(3) + key(4) + icon(3) + title(12) + desc(38) = 60
 	blockWidth := 60
@@ -172,16 +172,7 @@ func (m HomeModel) View() string {
 		PaddingBottom(1).
 		Render(menuBuilder.String())
 
-	content := lipgloss.JoinVertical(lipgloss.Left, header, "", menu)
-
-	contentHeight := lipgloss.Height(content)
-	padHeight := m.height - contentHeight - 1
-	if padHeight < 0 {
-		padHeight = 0
-	}
-	paddedContent := lipgloss.JoinVertical(lipgloss.Top, content, strings.Repeat("\n", padHeight))
-
-	statusBar := components.StatusBar("Home", "j/k move • enter select • b backup • s setup • e edit • f browse • q quit", m.width)
-
-	return lipgloss.JoinVertical(lipgloss.Top, paddedContent, statusBar)
+	statusBar := components.StatusBar("Home", "enter select • b backup • s setup • e edit • f browse • q quit", m.width)
+	topBlock := lipgloss.JoinVertical(lipgloss.Left, header, "", menu)
+	return components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
 }

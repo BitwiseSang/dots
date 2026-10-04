@@ -49,7 +49,7 @@ func NewBrowseModel(cfg *config.Config) BrowseModel {
 	fp.Styles.Directory = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
 	fp.Styles.File = lipgloss.NewStyle().Foreground(theme.Text)
 	fp.Styles.Permission = lipgloss.NewStyle().Foreground(theme.Muted)
-	fp.Styles.FileSize = lipgloss.NewStyle().Foreground(theme.Subtle)
+	fp.Styles.FileSize = lipgloss.NewStyle().Width(9).Align(lipgloss.Right).Foreground(theme.Subtle)
 	fp.Styles.Selected = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
 
 	return BrowseModel{
@@ -83,10 +83,14 @@ func (m BrowseModel) Update(msg tea.Msg) (BrowseModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// Header (13) + Title (2) + Badge (2) + StatusBar (1) = 18 lines overhead
-		avail := msg.Height - 18
-		if avail < 5 {
-			avail = 5
+		headerLines := 13
+		if msg.Height > 0 && msg.Height < 28 {
+			headerLines = 5
+		}
+		// Overhead: headerLines + Title (2) + Badge (2) + StatusBar (1) = headerLines + 5
+		avail := msg.Height - headerLines - 5
+		if avail < 4 {
+			avail = 4
 		}
 		m.fp.Height = avail
 
@@ -128,7 +132,7 @@ func (m BrowseModel) View() string {
 	if m.cfg != nil {
 		repoPath = m.cfg.RepoPath
 	}
-	header := components.Header(m.width, m.animStep, repoPath)
+	header := components.Header(m.width, m.height, m.animStep, repoPath)
 
 	blockWidth := 66
 	padLeft := (m.width - blockWidth) / 2
@@ -145,10 +149,10 @@ func (m BrowseModel) View() string {
 	currentDirBadge := indent + lipgloss.NewStyle().
 		Foreground(theme.Secondary).
 		Bold(true).
-		Render(theme.IconDirModern+" "+shortenHome(m.fp.CurrentDirectory))
+		Render(theme.IconDirModern + "  " + shortenHome(m.fp.CurrentDirectory))
 
-	// Indent raw filepicker lines directly without hardcoding icons or double arrows
-	rawFpLines := strings.Split(m.fp.View(), "\n")
+	// Indent raw filepicker lines directly with trim to ensure exact line count
+	rawFpLines := strings.Split(strings.TrimRight(m.fp.View(), "\n"), "\n")
 	var indentedFp []string
 	for _, l := range rawFpLines {
 		indentedFp = append(indentedFp, indent+l)
@@ -163,13 +167,7 @@ func (m BrowseModel) View() string {
 		strings.Join(indentedFp, "\n"),
 	)
 
-	contentHeight := lipgloss.Height(content) + lipgloss.Height(header)
-	padHeight := m.height - contentHeight - 1
-	if padHeight < 0 {
-		padHeight = 0
-	}
-	padded := lipgloss.JoinVertical(lipgloss.Top, header, content, strings.Repeat("\n", padHeight))
-
-	statusBar := components.StatusBar("Browse", "j/k move • enter open/traverse • o open dir in nvim • h parent • tab edit dotfiles • esc back • q quit", m.width)
-	return lipgloss.JoinVertical(lipgloss.Top, padded, statusBar)
+	statusBar := components.StatusBar("Browse", "enter open • o nvim • h parent • tab edit • esc home • q quit", m.width)
+	topBlock := lipgloss.JoinVertical(lipgloss.Top, header, content)
+	return components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
 }

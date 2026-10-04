@@ -113,13 +113,17 @@ func (m BackupModel) Update(msg tea.Msg) (BackupModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.selector.SetSize(msg.Width, msg.Height-14)
+		headerLines := 13
+		if msg.Height > 0 && msg.Height < 28 {
+			headerLines = 5
+		}
+		m.selector.SetSize(msg.Width, msg.Height-headerLines-3)
 		padLeft := (msg.Width - 66) / 2
 		if padLeft < 2 {
 			padLeft = 2
 		}
 		m.vp.Width = msg.Width - (padLeft * 2)
-		m.vp.Height = msg.Height - 16
+		m.vp.Height = msg.Height - headerLines - 4
 
 	case backupDoneMsg:
 		m.results = msg
@@ -280,7 +284,7 @@ func (m BackupModel) View() string {
 	if m.cfg != nil {
 		repoPath = m.cfg.RepoPath
 	}
-	header := components.Header(m.width, m.animStep, repoPath)
+	header := components.Header(m.width, m.height, m.animStep, repoPath)
 	var content string
 	var statusHint string
 
@@ -377,13 +381,7 @@ func (m BackupModel) View() string {
 		statusHint = "enter/esc return home • q quit"
 	}
 
-	contentHeight := lipgloss.Height(content) + lipgloss.Height(header)
-	padHeight := m.height - contentHeight - 1
-	if padHeight < 0 {
-		padHeight = 0
-	}
-	padded := lipgloss.JoinVertical(lipgloss.Top, header, content, strings.Repeat("\n", padHeight))
-
 	statusBar := components.StatusBar("Backup", statusHint, m.width)
-	return lipgloss.JoinVertical(lipgloss.Top, padded, statusBar)
+	topBlock := lipgloss.JoinVertical(lipgloss.Top, header, content)
+	return components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
 }

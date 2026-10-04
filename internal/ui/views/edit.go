@@ -104,7 +104,7 @@ func (m EditModel) View() string {
 	if m.cfg != nil {
 		repoPath = m.cfg.RepoPath
 	}
-	header := components.Header(m.width, m.animStep, repoPath)
+	header := components.Header(m.width, m.height, m.animStep, repoPath)
 
 	var contentBuilder strings.Builder
 
@@ -164,13 +164,7 @@ func (m EditModel) View() string {
 		PaddingTop(1).
 		Render(contentBuilder.String())
 
-	contentHeight := lipgloss.Height(content) + lipgloss.Height(header)
-	padHeight := m.height - contentHeight - 1
-	if padHeight < 0 {
-		padHeight = 0
-	}
-	padded := lipgloss.JoinVertical(lipgloss.Top, header, content, strings.Repeat("\n", padHeight))
-
-	statusBar := components.StatusBar("Edit", "j/k move • enter edit/browse • o open dir in nvim • f/tab browse files • esc back • q quit", m.width)
-	return lipgloss.JoinVertical(lipgloss.Top, padded, statusBar)
+	statusBar := components.StatusBar("Edit", "enter open • tab browse • esc home • q quit", m.width)
+	topBlock := lipgloss.JoinVertical(lipgloss.Top, header, content)
+	return components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
 }
