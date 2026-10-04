@@ -28,15 +28,14 @@ const (
 )
 
 type EditModel struct {
-	entries    []dotfile.Entry
-	cfg        *config.Config
-	cursor     int
-	width      int
-	height     int
-	mode       editSubMode
-	fp         filepicker.Model
-	animStep   int
-	statusText string
+	entries  []dotfile.Entry
+	cfg      *config.Config
+	cursor   int
+	width    int
+	height   int
+	mode     editSubMode
+	fp       filepicker.Model
+	animStep int
 }
 
 func NewEditModel(entries []dotfile.Entry, cfg *config.Config) EditModel {
@@ -55,7 +54,7 @@ func NewEditModel(entries []dotfile.Entry, cfg *config.Config) EditModel {
 	fp.DirAllowed = true
 	fp.FileAllowed = true
 	fp.AutoHeight = false
-	fp.Height = 12
+	fp.Height = 14
 
 	fp.Styles.Cursor = lipgloss.NewStyle().Foreground(theme.Pink).Bold(true)
 	fp.Styles.Directory = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
@@ -77,6 +76,8 @@ func (m EditModel) Init() tea.Cmd {
 }
 
 func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
+	var cmds []tea.Cmd
+
 	switch msg := msg.(type) {
 	case TickMsg:
 		m.animStep++
@@ -104,66 +105,74 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 		case "tab", "f":
 			if m.mode == modeConfigList {
 				m.mode = modeFilePicker
-				return m, nil
+				return m, m.fp.Init()
 			} else {
 				m.mode = modeConfigList
 				return m, nil
 			}
 		}
 
-		if m.mode == modeFilePicker {
-			var cmd tea.Cmd
-			m.fp, cmd = m.fp.Update(msg)
-
-			if didSelect, path := m.fp.DidSelectFile(msg); didSelect {
-				ed := editor.Resolve(m.cfg.Editor)
-				return m, func() tea.Msg {
-					return OpenEditorMsg{Path: path, Editor: ed}
+		if m.mode == modeConfigList {
+			switch msg.String() {
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case "down", "j":
+				if m.cursor < len(m.entries)-1 {
+					m.cursor++
+				}
+			case "enter":
+				if len(m.entries) > 0 {
+					entry := m.entries[m.cursor]
+					path := entry.EditPath()
+					ed := editor.Resolve(m.cfg.Editor)
+					return m, func() tea.Msg {
+						return OpenEditorMsg{Path: path, Editor: ed}
+					}
 				}
 			}
-			return m, cmd
+			return m, nil
 		}
+	}
 
-		// modeConfigList navigation
-		switch msg.String() {
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "down", "j":
-			if m.cursor < len(m.entries)-1 {
-				m.cursor++
-			}
-		case "enter":
-			if len(m.entries) > 0 {
-				entry := m.entries[m.cursor]
-				path := entry.EditPath()
-				ed := editor.Resolve(m.cfg.Editor)
-				return m, func() tea.Msg {
-					return OpenEditorMsg{Path: path, Editor: ed}
-				}
+	// Always forward messages (including readDirMsg from filepicker.Init) to filepicker when in picker mode
+	if m.mode == modeFilePicker {
+		var cmd tea.Cmd
+		m.fp, cmd = m.fp.Update(msg)
+		cmds = append(cmds, cmd)
+
+		if didSelect, path := m.fp.DidSelectFile(msg); didSelect {
+			ed := editor.Resolve(m.cfg.Editor)
+			return m, func() tea.Msg {
+				return OpenEditorMsg{Path: path, Editor: ed}
 			}
 		}
 	}
-	return m, nil
+
+	return m, tea.Batch(cmds...)
 }
 
 // decorateFilePickerLines adds appropriate Nerd Font icons to items rendered by filepicker.
-func decorateFilePickerLines(rawView string) string {
+func decorateFilePickerLines(rawView string, indent string) string {
 	lines := strings.Split(rawView, "\n")
 	var decorated []string
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
-			decorated = append(decorated, line)
+			decorated = append(decorated, "")
 			continue
 		}
 
-		// Extract base name after cursor or indentation
+		if strings.Contains(line, "Bummer") || strings.Contains(line, "No Files") {
+			decorated = append(decorated, indent+theme.MutedStyle.Render("  "+line))
+			continue
+		}
+
 		parts := strings.Fields(line)
 		if len(parts) == 0 {
-			decorated = append(decorated, line)
+			decorated = append(decorated, indent+line)
 			continue
 		}
 
@@ -177,14 +186,13 @@ func decorateFilePickerLines(rawView string) string {
 			iconColor = theme.Pink
 		}
 
-		coloredIcon := lipgloss.NewStyle().Foreground(iconColor).Render(icon)
+		coloredIcon := lipgloss.NewStyle().Width(3).Foreground(iconColor).Render(icon)
 
-		// If line has cursor '>' or '❯'
 		if strings.Contains(line, ">") || strings.Contains(line, "❯") {
-			cursorStr := lipgloss.NewStyle().Foreground(theme.Pink).Bold(true).Render(" " + theme.IconCursor + " ")
-			decorated = append(decorated, cursorStr+coloredIcon+line[strings.Index(line, parts[0]):])
+			cursorStr := lipgloss.NewStyle().Width(3).Foreground(theme.Pink).Bold(true).Render(theme.IconCursor + " ")
+			decorated = append(decorated, indent+cursorStr+coloredIcon+line[strings.Index(line, parts[0]):])
 		} else {
-			decorated = append(decorated, "   "+coloredIcon+line)
+			decorated = append(decorated, indent+"   "+coloredIcon+line)
 		}
 	}
 
@@ -192,7 +200,11 @@ func decorateFilePickerLines(rawView string) string {
 }
 
 func (m EditModel) View() string {
-	header := components.Header(m.width, m.animStep)
+	repoPath := ""
+	if m.cfg != nil {
+		repoPath = m.cfg.RepoPath
+	}
+	header := components.Header(m.width, m.animStep, repoPath)
 
 	var contentBuilder strings.Builder
 
@@ -211,14 +223,21 @@ func (m EditModel) View() string {
 	tabsBar := lipgloss.JoinHorizontal(lipgloss.Center, tabList, "  •  ", tabPicker)
 	contentBuilder.WriteString(lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(tabsBar) + "\n\n")
 
+	// Calculate horizontal indent for left-aligned block centering
+	blockWidth := 60
+	padLeft := (m.width - blockWidth) / 2
+	if padLeft < 2 {
+		padLeft = 2
+	}
+	indent := strings.Repeat(" ", padLeft)
+
 	if m.mode == modeFilePicker {
-		// Filepicker view
-		currentDirBadge := lipgloss.NewStyle().
+		currentDirBadge := indent + lipgloss.NewStyle().
 			Foreground(theme.Secondary).
 			Bold(true).
-			Render(" " + theme.IconDir + " " + m.fp.CurrentDirectory)
+			Render(theme.IconDir+" "+m.fp.CurrentDirectory)
 
-		fpView := decorateFilePickerLines(m.fp.View())
+		fpView := decorateFilePickerLines(m.fp.View(), indent)
 
 		pickerBox := lipgloss.JoinVertical(
 			lipgloss.Left,
@@ -227,18 +246,19 @@ func (m EditModel) View() string {
 			fpView,
 		)
 
-		contentBuilder.WriteString(lipgloss.NewStyle().Padding(0, 4).Render(pickerBox))
+		contentBuilder.WriteString(pickerBox)
 	} else {
-		// Clean config list with Magenta/Pink active highlight
 		for i, entry := range m.entries {
 			isSelected := i == m.cursor
 
-			cursorStr := "   "
+			cursorStyle := lipgloss.NewStyle().Width(3)
+			cursorStr := cursorStyle.Render(" ")
 			if isSelected {
-				cursorStr = lipgloss.NewStyle().Foreground(theme.Pink).Bold(true).Render(" " + theme.IconCursor + " ")
+				cursorStr = cursorStyle.Foreground(theme.Pink).Bold(true).Render(theme.IconCursor + " ")
 			}
 
-			iconStr := lipgloss.NewStyle().Foreground(theme.Secondary).Render(theme.FileIcon(entry.Name, entry.IsDir))
+			iconStyle := lipgloss.NewStyle().Width(3).Foreground(theme.Secondary)
+			iconStr := iconStyle.Render(theme.FileIcon(entry.Name, entry.IsDir))
 
 			nameStyle := lipgloss.NewStyle().Width(18)
 			if isSelected {
@@ -250,12 +270,11 @@ func (m EditModel) View() string {
 
 			pathStr := lipgloss.NewStyle().Foreground(theme.Muted).Render(entry.EditPath())
 
-			row := lipgloss.JoinHorizontal(
+			row := indent + lipgloss.JoinHorizontal(
 				lipgloss.Left,
 				cursorStr,
 				iconStr,
 				nameStr,
-				" ",
 				pathStr,
 			)
 
@@ -267,8 +286,6 @@ func (m EditModel) View() string {
 	}
 
 	content := lipgloss.NewStyle().
-		Width(m.width).
-		Align(lipgloss.Center).
 		PaddingTop(1).
 		Render(contentBuilder.String())
 
@@ -279,15 +296,19 @@ func (m EditModel) View() string {
 	}
 	padded := lipgloss.JoinVertical(lipgloss.Top, header, content, strings.Repeat("\n", padHeight))
 
-	hint := "j/k move • enter edit • f/tab browse files • esc back"
+	hint := "j/k move • enter edit • f/tab browse files • esc back • q quit"
 	if m.mode == modeFilePicker {
-		hint = "j/k move • enter open • h parent • tab switch back • esc back"
+		hint = "j/k move • enter open • h parent • tab switch back • esc back • q quit"
 	}
 
 	statusBar := components.StatusBar("Edit", hint, m.width)
 	return lipgloss.JoinVertical(lipgloss.Top, padded, statusBar)
 }
 
-func (m *EditModel) SetMode(mode editSubMode) {
+func (m *EditModel) SetMode(mode editSubMode) tea.Cmd {
 	m.mode = mode
+	if mode == modeFilePicker {
+		return m.fp.Init()
+	}
+	return nil
 }

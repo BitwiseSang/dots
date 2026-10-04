@@ -34,9 +34,9 @@ type AppModel struct {
 	quitting    bool
 
 	// Harmonica spring simulation for smooth view transition animations
-	spring      harmonica.Spring
-	springPos   float64
-	springVel   float64
+	spring    harmonica.Spring
+	springPos float64
+	springVel float64
 }
 
 func NewApp(cfg *config.Config, initialView views.ViewType) AppModel {
@@ -47,13 +47,13 @@ func NewApp(cfg *config.Config, initialView views.ViewType) AppModel {
 
 	editView := views.NewEditModel(entries, cfg)
 	if initialView == views.ViewBrowse {
-		editView.SetMode(1) // Open directly in filepicker mode
+		_ = editView.SetMode(1) // Open directly in filepicker mode
 		initialView = views.ViewEdit
 	}
 
 	return AppModel{
 		currentView: initialView,
-		home:        views.NewHomeModel(),
+		home:        views.NewHomeModel(cfg.RepoPath),
 		backup:      views.NewBackupModel(entries, cfg),
 		setup:       views.NewSetupModel(entries, cfg),
 		edit:        editView,
@@ -119,22 +119,23 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, childCmd)
 
 	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC || (msg.String() == "q" && m.currentView == views.ViewHome) {
+		// Universal quit with 'q' or Ctrl+C from ANY page/view
+		if msg.Type == tea.KeyCtrlC || msg.String() == "q" {
 			m.quitting = true
 			return m, tea.Quit
 		}
 
 	case views.NavigateMsg:
+		var initCmd tea.Cmd
 		if msg.View == views.ViewBrowse {
-			m.edit.SetMode(1) // switch to filepicker in edit view
+			initCmd = m.edit.SetMode(1) // switch to filepicker in edit view and trigger m.fp.Init()
 			m.currentView = views.ViewEdit
 		} else {
 			m.currentView = msg.View
 		}
-		// Reset spring on view transition
 		m.springPos = 0.0
 		m.springVel = 0.0
-		return m, nil
+		return m, initCmd
 
 	case views.OpenEditorMsg:
 		c := exec.Command(msg.Editor, msg.Path)
@@ -144,6 +145,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editorFinishedMsg:
 		m.entries = dotfile.LoadEntries(m.cfg)
+		m.home = views.NewHomeModel(m.cfg.RepoPath)
 		m.backup = views.NewBackupModel(m.entries, m.cfg)
 		m.setup = views.NewSetupModel(m.entries, m.cfg)
 		m.edit = views.NewEditModel(m.entries, m.cfg)
@@ -153,7 +155,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setup, _ = m.setup.Update(sizeMsg)
 		m.edit, _ = m.edit.Update(sizeMsg)
 
-		return m, nil
+		return m, m.edit.Init()
 	}
 
 	switch m.currentView {

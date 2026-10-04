@@ -146,3 +146,11 @@ func DotsSeparator(width int) string {
 func SubtleDotsCluster() string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Render(":::")
 }
+
+// AnimatedThreeDots renders 3 centered dots with the same flowing gradient as the main title.
+func AnimatedThreeDots(step int) string {
+	dot1 := lipgloss.NewStyle().Foreground(lipgloss.Color(InterpolateRGB(float64(step)*0.02))).Bold(true).Render("•")
+	dot2 := lipgloss.NewStyle().Foreground(lipgloss.Color(InterpolateRGB(float64(step)*0.02 + 0.15))).Bold(true).Render("•")
+	dot3 := lipgloss.NewStyle().Foreground(lipgloss.Color(InterpolateRGB(float64(step)*0.02 + 0.30))).Bold(true).Render("•")
+	return dot1 + "   " + dot2 + "   " + dot3
+}

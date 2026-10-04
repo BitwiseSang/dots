@@ -86,22 +86,25 @@ func (s Selector) View() string {
 	for i, item := range s.Items {
 		isCursor := i == s.cursor
 
-		// Cursor pointer
-		cursorStr := "   "
+		// Cursor pointer - fixed width 3
+		cursorStyle := lipgloss.NewStyle().Width(3)
+		cursorStr := cursorStyle.Render(" ")
 		if isCursor {
-			cursorStr = lipgloss.NewStyle().Foreground(s.ActiveColor).Bold(true).Render(" " + theme.IconCursor + " ")
+			cursorStr = cursorStyle.Foreground(s.ActiveColor).Bold(true).Render(theme.IconCursor + " ")
 		}
 
-		// Checkbox
-		checkboxStr := lipgloss.NewStyle().Foreground(theme.Muted).Render("[ ]")
+		// Checkbox - fixed width 4
+		checkboxStyle := lipgloss.NewStyle().Width(4)
+		checkboxStr := checkboxStyle.Foreground(theme.Muted).Render("[ ] ")
 		if item.Selected {
-			checkboxStr = lipgloss.NewStyle().Foreground(s.CheckColor).Bold(true).Render("[" + theme.IconInSync + "]")
+			checkboxStr = checkboxStyle.Foreground(s.CheckColor).Bold(true).Render("[" + theme.IconInSync + "] ")
 		}
 
-		// Icon
-		iconStr := lipgloss.NewStyle().Foreground(theme.Secondary).Render(theme.FileIcon(item.Name, item.IsDir))
+		// Icon - fixed width 3
+		iconStyle := lipgloss.NewStyle().Width(3).Foreground(theme.Secondary)
+		iconStr := iconStyle.Render(theme.FileIcon(item.Name, item.IsDir))
 
-		// Item Name
+		// Item Name - fixed width 16
 		nameStyle := lipgloss.NewStyle().Width(16)
 		if isCursor {
 			nameStyle = nameStyle.Foreground(s.ActiveColor).Bold(true)
@@ -112,7 +115,7 @@ func (s Selector) View() string {
 		}
 		nameStr := nameStyle.Render(item.Name)
 
-		// Status formatting with Nerd Font icons
+		// Status formatting with fixed width 18
 		statusDesc := item.Desc
 		statusStyle := lipgloss.NewStyle().Width(18)
 		switch {
@@ -142,7 +145,6 @@ func (s Selector) View() string {
 			lipgloss.Left,
 			cursorStr,
 			checkboxStr,
-			" ",
 			iconStr,
 			nameStr,
 			" ",
@@ -150,17 +152,6 @@ func (s Selector) View() string {
 			" ",
 			pathStr,
 		)
-
-		if isCursor {
-			// Subtle accent indicator line
-			line = lipgloss.NewStyle().
-				Padding(0, 1).
-				Render(line)
-		} else {
-			line = lipgloss.NewStyle().
-				Padding(0, 1).
-				Render(line)
-		}
 
 		b.WriteString(line)
 		if i < len(s.Items)-1 {

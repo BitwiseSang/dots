@@ -242,39 +242,57 @@ func (m BackupModel) generateDiff(indices []int) string {
 }
 
 func (m BackupModel) View() string {
-	header := components.Header(m.width, m.animStep)
+	repoPath := ""
+	if m.cfg != nil {
+		repoPath = m.cfg.RepoPath
+	}
+	header := components.Header(m.width, m.animStep, repoPath)
 	var content string
 	var statusHint string
 
+	blockWidth := 66
+	padLeft := (m.width - blockWidth) / 2
+	if padLeft < 2 {
+		padLeft = 2
+	}
+	indent := strings.Repeat(" ", padLeft)
+
 	switch m.phase {
 	case phaseSelect:
-		title := lipgloss.NewStyle().
+		title := indent + lipgloss.NewStyle().
 			Bold(true).
 			Foreground(theme.Secondary).
 			Render("Select configurations to back up into repository:")
+
+		selLines := strings.Split(m.selector.View(), "\n")
+		var indentedSel []string
+		for _, l := range selLines {
+			indentedSel = append(indentedSel, indent+l)
+		}
+
 		content = lipgloss.JoinVertical(
 			lipgloss.Left,
-			"  "+title,
+			title,
 			"",
-			m.selector.View(),
+			strings.Join(indentedSel, "\n"),
 		)
-		statusHint = "space toggle • a toggle all • enter view diff • esc back"
+		statusHint = "space toggle • a toggle all • enter view diff • esc back • q quit"
 
 	case phaseDiff:
-		diffTitle := lipgloss.NewStyle().
+		diffTitle := indent + lipgloss.NewStyle().
 			Bold(true).
 			Foreground(theme.Secondary).
 			Render("Diff Preview (System ↔ Repository):")
 		content = lipgloss.JoinVertical(
 			lipgloss.Left,
-			"  "+diffTitle,
+			diffTitle,
 			"",
 			m.vp.View(),
 		)
-		statusHint = "up/down scroll • enter confirm backup • esc back"
+		statusHint = "up/down scroll • enter confirm backup • esc back • q quit"
 
 	case phaseExecute:
-		content = lipgloss.NewStyle().Padding(3, 4).Render(
+		content = indent + lipgloss.NewStyle().Padding(3, 0).Render(
 			fmt.Sprintf("%s Backing up %d items into repository...", m.spinner.View(), len(m.selector.SelectedIndices())),
 		)
 		statusHint = "Executing..."
@@ -284,14 +302,14 @@ func (m BackupModel) View() string {
 		if m.gitPrompt == "push" {
 			prompt = fmt.Sprintf("%s Push committed changes to remote? (y/n)", theme.IconGit)
 		}
-		content = lipgloss.NewStyle().Padding(3, 4).Render(
+		content = indent + lipgloss.NewStyle().Padding(3, 0).Render(
 			lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render(prompt),
 		)
-		statusHint = "y yes • n no"
+		statusHint = "y yes • n no • q quit"
 
 	case phaseDone:
 		var b strings.Builder
-		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.Success).Render("Backup Complete:\n\n"))
+		b.WriteString(indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Success).Render("Backup Complete:\n\n"))
 		for _, r := range m.results {
 			icon := lipgloss.NewStyle().Foreground(theme.Success).Render(theme.IconInSync)
 			status := "Synced"
@@ -303,10 +321,11 @@ func (m BackupModel) View() string {
 				status = "Skipped"
 			}
 
-			b.WriteString(fmt.Sprintf("  %s %s: %s\n", icon, lipgloss.NewStyle().Bold(true).Render(r.Entry.Name), status))
+			nameStr := lipgloss.NewStyle().Width(16).Bold(true).Render(r.Entry.Name)
+			b.WriteString(fmt.Sprintf("%s  %s %s: %s\n", indent, icon, nameStr, status))
 		}
-		content = lipgloss.NewStyle().Padding(2, 4).Render(b.String())
-		statusHint = "enter/esc return home"
+		content = b.String()
+		statusHint = "enter/esc return home • q quit"
 	}
 
 	contentHeight := lipgloss.Height(content) + lipgloss.Height(header)

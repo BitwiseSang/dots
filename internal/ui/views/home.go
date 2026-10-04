@@ -39,9 +39,10 @@ type HomeModel struct {
 	width    int
 	height   int
 	animStep int
+	repoPath string
 }
 
-func NewHomeModel() HomeModel {
+func NewHomeModel(repoPath string) HomeModel {
 	return HomeModel{
 		items: []menuItem{
 			{key: "b", icon: theme.IconBackup, title: "Backup", desc: "Sync system configs into repo", view: ViewBackup},
@@ -49,7 +50,8 @@ func NewHomeModel() HomeModel {
 			{key: "e", icon: theme.IconEdit, title: "Edit", desc: "Open configs in your editor", view: ViewEdit},
 			{key: "f", icon: theme.IconBrowse, title: "Browse", desc: "Explore filesystem with file picker", view: ViewBrowse},
 		},
-		cursor: 0,
+		cursor:   0,
+		repoPath: repoPath,
 	}
 }
 
@@ -95,32 +97,42 @@ func (m HomeModel) Update(msg tea.Msg) (HomeModel, tea.Cmd) {
 }
 
 func (m HomeModel) View() string {
-	header := components.Header(m.width, m.animStep)
+	header := components.Header(m.width, m.animStep, m.repoPath)
+
+	// Block width: cursor(3) + key(4) + icon(3) + title(12) + desc(38) = 60
+	blockWidth := 60
+	padLeft := (m.width - blockWidth) / 2
+	if padLeft < 2 {
+		padLeft = 2
+	}
+	indent := strings.Repeat(" ", padLeft)
 
 	var menuBuilder strings.Builder
 	for i, item := range m.items {
 		isSelected := i == m.cursor
 
-		// Cursor indicator
-		cursorStr := "   "
+		// Cursor indicator - fixed width 3
+		cursorStyle := lipgloss.NewStyle().Width(3)
+		cursorStr := cursorStyle.Render(" ")
 		if isSelected {
-			cursorStr = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true).Render(" " + theme.IconCursor + " ")
+			cursorStr = cursorStyle.Foreground(theme.Secondary).Bold(true).Render(theme.IconCursor + " ")
 		}
 
-		// Hotkey badge: [b]
-		keyBadge := lipgloss.NewStyle().Foreground(theme.Muted).Render("[" + item.key + "]")
+		// Hotkey badge: [b] - fixed width 4
+		keyStyle := lipgloss.NewStyle().Width(4)
+		keyBadge := keyStyle.Foreground(theme.Muted).Render("[" + item.key + "] ")
 		if isSelected {
-			keyBadge = lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("[" + item.key + "]")
+			keyBadge = keyStyle.Foreground(theme.Accent).Bold(true).Render("[" + item.key + "] ")
 		}
 
-		// Icon
+		// Icon - fixed width 3
 		iconColor := theme.Secondary
 		if isSelected {
 			iconColor = theme.Pink
 		}
-		iconStr := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(item.icon)
+		iconStr := lipgloss.NewStyle().Width(3).Foreground(iconColor).Bold(true).Render(item.icon + " ")
 
-		// Title
+		// Title - fixed width 12
 		titleStyle := lipgloss.NewStyle().Bold(true).Width(12)
 		if isSelected {
 			titleStyle = titleStyle.Foreground(theme.Primary)
@@ -136,15 +148,12 @@ func (m HomeModel) View() string {
 		}
 		descStr := descStyle.Render(item.desc)
 
-		row := lipgloss.JoinHorizontal(
+		row := indent + lipgloss.JoinHorizontal(
 			lipgloss.Left,
 			cursorStr,
 			keyBadge,
-			" ",
 			iconStr,
-			" ",
 			titleStr,
-			" ",
 			descStr,
 		)
 
@@ -155,13 +164,11 @@ func (m HomeModel) View() string {
 	}
 
 	menu := lipgloss.NewStyle().
-		Width(m.width).
-		Align(lipgloss.Center).
 		PaddingTop(1).
 		PaddingBottom(1).
 		Render(menuBuilder.String())
 
-	content := lipgloss.JoinVertical(lipgloss.Center, header, menu)
+	content := lipgloss.JoinVertical(lipgloss.Left, header, "", menu)
 
 	contentHeight := lipgloss.Height(content)
 	padHeight := m.height - contentHeight - 3

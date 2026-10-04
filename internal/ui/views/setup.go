@@ -172,9 +172,10 @@ func (m SetupModel) generatePreview(indices []int) string {
 		dst := lipgloss.NewStyle().Foreground(theme.Primary).Render(entry.ResolveSystemPath())
 		arrow := lipgloss.NewStyle().Foreground(theme.Secondary).Render(" ➜ ")
 
+		nameStr := lipgloss.NewStyle().Width(16).Bold(true).Render(entry.Name)
 		b.WriteString(fmt.Sprintf("  %s %s\n      %s%s%s\n\n",
 			icon,
-			lipgloss.NewStyle().Bold(true).Render(entry.Name),
+			nameStr,
 			src,
 			arrow,
 			dst,
@@ -184,62 +185,86 @@ func (m SetupModel) generatePreview(indices []int) string {
 }
 
 func (m SetupModel) View() string {
-	header := components.Header(m.width, m.animStep)
+	repoPath := ""
+	if m.cfg != nil {
+		repoPath = m.cfg.RepoPath
+	}
+	header := components.Header(m.width, m.animStep, repoPath)
 	var content string
 	var statusHint string
 
+	blockWidth := 66
+	padLeft := (m.width - blockWidth) / 2
+	if padLeft < 2 {
+		padLeft = 2
+	}
+	indent := strings.Repeat(" ", padLeft)
+
 	switch m.phase {
 	case setupPhaseSelect:
-		title := lipgloss.NewStyle().
+		title := indent + lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#A855F7")).
 			Render("Select configurations to symlink into your system:")
+
+		selLines := strings.Split(m.selector.View(), "\n")
+		var indentedSel []string
+		for _, l := range selLines {
+			indentedSel = append(indentedSel, indent+l)
+		}
+
 		content = lipgloss.JoinVertical(
 			lipgloss.Left,
-			"  "+title,
+			title,
 			"",
-			m.selector.View(),
+			strings.Join(indentedSel, "\n"),
 		)
-		statusHint = "space toggle • a toggle all • enter preview symlinks • esc back"
+		statusHint = "space toggle • a toggle all • enter preview symlinks • esc back • q quit"
 
 	case setupPhasePreview:
-		content = lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.vp.View(),
-		)
-		statusHint = "up/down scroll • enter confirm symlink setup • esc back"
+		previewLines := strings.Split(m.vp.View(), "\n")
+		var indentedPrev []string
+		for _, l := range previewLines {
+			indentedPrev = append(indentedPrev, indent+l)
+		}
+
+		content = strings.Join(indentedPrev, "\n")
+		statusHint = "up/down scroll • enter confirm symlink setup • esc back • q quit"
 
 	case setupPhaseExecute:
-		content = lipgloss.NewStyle().Padding(3, 4).Render(
+		content = indent + lipgloss.NewStyle().Padding(3, 0).Render(
 			fmt.Sprintf("%s Linking %d configurations to system...", m.spinner.View(), len(m.selector.SelectedIndices())),
 		)
 		statusHint = "Executing..."
 
 	case setupPhaseDone:
 		var b strings.Builder
-		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.Success).Render("Setup Complete:\n\n"))
+		b.WriteString(indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Success).Render("Setup Complete:\n\n"))
 		for _, r := range m.results {
-			icon := lipgloss.NewStyle().Foreground(theme.Success).Render(theme.IconLinked)
+			icon := lipgloss.NewStyle().Width(3).Foreground(theme.Success).Render(theme.IconLinked)
 			status := "Linked"
 			if r.Err != nil {
-				icon = lipgloss.NewStyle().Foreground(theme.Error).Render(theme.IconChanged)
+				icon = lipgloss.NewStyle().Width(3).Foreground(theme.Error).Render(theme.IconChanged)
 				status = r.Err.Error()
 			} else if r.BackedUp {
 				status = fmt.Sprintf("Linked (old backup: %s)", r.BackupPath)
 			}
 
-			b.WriteString(fmt.Sprintf("  %s %s: %s\n", icon, lipgloss.NewStyle().Bold(true).Render(r.Entry.Name), status))
+			nameStr := lipgloss.NewStyle().Width(16).Bold(true).Render(r.Entry.Name)
+			b.WriteString(fmt.Sprintf("%s%s %s: %s\n", indent, icon, nameStr, status))
 		}
 
 		if m.backupDir != "" {
-			b.WriteString(fmt.Sprintf("\n  %s Old configurations safely archived in:\n     %s\n",
+			b.WriteString(fmt.Sprintf("\n%s%s Old configurations safely archived in:\n%s   %s\n",
+				indent,
 				theme.IconDotsCluster,
+				indent,
 				lipgloss.NewStyle().Foreground(theme.Muted).Render(m.backupDir),
 			))
 		}
 
-		content = lipgloss.NewStyle().Padding(2, 4).Render(b.String())
-		statusHint = "enter/esc return home"
+		content = b.String()
+		statusHint = "enter/esc return home • q quit"
 	}
 
 	contentHeight := lipgloss.Height(content) + lipgloss.Height(header)

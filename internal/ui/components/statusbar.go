@@ -43,14 +43,11 @@ func RenderShortcuts(hints string) string {
 	return strings.Join(formatted, bulletStyle.Render("  •  "))
 }
 
-// StatusBar renders the bottom status bar with a dot separator on top
-// followed by the Crush-style shortcuts strip.
+// StatusBar renders the bottom status bar with the Crush-style shortcuts strip.
 func StatusBar(context, hint string, width int) string {
 	if width <= 0 {
 		width = 80
 	}
-
-	separator := theme.DotsSeparator(width)
 
 	ctxBadge := ""
 	if context != "" {
@@ -63,11 +60,9 @@ func StatusBar(context, hint string, width int) string {
 	shortcuts := RenderShortcuts(hint)
 	barContent := ctxBadge + shortcuts
 
-	centeredBar := lipgloss.NewStyle().
+	return lipgloss.NewStyle().
 		Width(width).
 		Align(lipgloss.Center).
 		Padding(0, 1).
 		Render(barContent)
-
-	return lipgloss.JoinVertical(lipgloss.Center, separator, centeredBar)
 }
