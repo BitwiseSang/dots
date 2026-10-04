@@ -71,6 +71,29 @@ func (m SetupModel) Init() tea.Cmd {
 	return m.spinner.Tick
 }
 
+func (m *SetupModel) Reset(entries []dotfile.Entry) {
+	m.entries = entries
+	m.phase = setupPhaseSelect
+	m.results = nil
+	m.backupDir = ""
+
+	items := make([]components.SelectorItem, len(entries))
+	for i, e := range entries {
+		items[i] = components.SelectorItem{
+			Name:  e.Name,
+			Desc:  e.StatusLabel(),
+			Path:  e.ResolveSystemPath(),
+			IsDir: e.IsDir,
+		}
+	}
+	m.selector = components.NewSelector(items)
+	m.selector.ActiveColor = lipgloss.Color("#A855F7") // Electric Violet for Setup
+	m.selector.CheckColor = theme.Accent               // Amber
+	if m.width > 0 && m.height > 0 {
+		m.selector.SetSize(m.width, m.height-14)
+	}
+}
+
 type setupDoneMsg struct {
 	Results   []dotfile.SetupResult
 	BackupDir string
@@ -151,6 +174,7 @@ func (m SetupModel) Update(msg tea.Msg) (SetupModel, tea.Cmd) {
 
 		case setupPhaseDone:
 			if msg.String() == "enter" || msg.String() == "esc" {
+				m.Reset(m.entries)
 				return m, func() tea.Msg { return NavigateMsg{View: ViewHome} }
 			}
 		}
@@ -239,19 +263,27 @@ func (m SetupModel) View() string {
 
 	case setupPhaseDone:
 		var b strings.Builder
-		b.WriteString(indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Success).Render("Setup Complete:\n\n"))
+		titleStr := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Success).Render("Setup Complete:")
+		b.WriteString(titleStr + "\n\n")
+
 		for _, r := range m.results {
-			icon := lipgloss.NewStyle().Width(3).Foreground(theme.Success).Render(theme.IconLinked)
-			status := "Linked"
+			iconStr := lipgloss.NewStyle().Width(3).Foreground(theme.Success).Render(theme.IconLinked)
+			statusStr := lipgloss.NewStyle().Foreground(theme.Success).Render("Linked")
 			if r.Err != nil {
-				icon = lipgloss.NewStyle().Width(3).Foreground(theme.Error).Render(theme.IconChanged)
-				status = r.Err.Error()
+				iconStr = lipgloss.NewStyle().Width(3).Foreground(theme.Error).Render(theme.IconChanged)
+				statusStr = lipgloss.NewStyle().Foreground(theme.Error).Render(r.Err.Error())
 			} else if r.BackedUp {
-				status = fmt.Sprintf("Linked (old backup: %s)", r.BackupPath)
+				statusStr = lipgloss.NewStyle().Foreground(theme.Success).Render(fmt.Sprintf("Linked (old backup: %s)", r.BackupPath))
 			}
 
-			nameStr := lipgloss.NewStyle().Width(16).Bold(true).Render(r.Entry.Name)
-			b.WriteString(fmt.Sprintf("%s%s %s: %s\n", indent, icon, nameStr, status))
+			nameStr := lipgloss.NewStyle().Width(18).Bold(true).Render(r.Entry.Name)
+			row := indent + lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				iconStr,
+				nameStr,
+				statusStr,
+			)
+			b.WriteString(row + "\n")
 		}
 
 		if m.backupDir != "" {

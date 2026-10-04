@@ -69,6 +69,29 @@ func NewBackupModel(entries []dotfile.Entry, cfg *config.Config) BackupModel {
 	}
 }
 
+func (m *BackupModel) Reset(entries []dotfile.Entry) {
+	m.entries = entries
+	m.phase = phaseSelect
+	m.results = nil
+	m.gitPrompt = ""
+
+	items := make([]components.SelectorItem, len(entries))
+	for i, e := range entries {
+		items[i] = components.SelectorItem{
+			Name:  e.Name,
+			Desc:  e.StatusLabel(),
+			Path:  e.ResolveSystemPath(),
+			IsDir: e.IsDir,
+		}
+	}
+	m.selector = components.NewSelector(items)
+	m.selector.ActiveColor = theme.Secondary
+	m.selector.CheckColor = theme.Success
+	if m.width > 0 && m.height > 0 {
+		m.selector.SetSize(m.width, m.height-14)
+	}
+}
+
 func (m BackupModel) Init() tea.Cmd {
 	return m.spinner.Tick
 }
@@ -199,6 +222,7 @@ func (m BackupModel) Update(msg tea.Msg) (BackupModel, tea.Cmd) {
 		case phaseDone:
 			switch msg.String() {
 			case "enter", "esc":
+				m.Reset(m.entries)
 				return m, func() tea.Msg {
 					return NavigateMsg{View: ViewHome}
 				}
@@ -309,20 +333,28 @@ func (m BackupModel) View() string {
 
 	case phaseDone:
 		var b strings.Builder
-		b.WriteString(indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Success).Render("Backup Complete:\n\n"))
+		titleStr := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Success).Render("Backup Complete:")
+		b.WriteString(titleStr + "\n\n")
+
 		for _, r := range m.results {
-			icon := lipgloss.NewStyle().Foreground(theme.Success).Render(theme.IconInSync)
-			status := "Synced"
+			iconStr := lipgloss.NewStyle().Width(3).Foreground(theme.Success).Render(theme.IconInSync)
+			statusStr := lipgloss.NewStyle().Foreground(theme.Success).Render("Synced")
 			if r.Err != nil {
-				icon = lipgloss.NewStyle().Foreground(theme.Error).Render(theme.IconChanged)
-				status = r.Err.Error()
+				iconStr = lipgloss.NewStyle().Width(3).Foreground(theme.Error).Render(theme.IconChanged)
+				statusStr = lipgloss.NewStyle().Foreground(theme.Error).Render(r.Err.Error())
 			} else if r.Skipped {
-				icon = lipgloss.NewStyle().Foreground(theme.Muted).Render("-")
-				status = "Skipped"
+				iconStr = lipgloss.NewStyle().Width(3).Foreground(theme.Muted).Render("-")
+				statusStr = lipgloss.NewStyle().Foreground(theme.Muted).Render("Skipped")
 			}
 
-			nameStr := lipgloss.NewStyle().Width(16).Bold(true).Render(r.Entry.Name)
-			b.WriteString(fmt.Sprintf("%s  %s %s: %s\n", indent, icon, nameStr, status))
+			nameStr := lipgloss.NewStyle().Width(18).Bold(true).Render(r.Entry.Name)
+			row := indent + lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				iconStr,
+				nameStr,
+				statusStr,
+			)
+			b.WriteString(row + "\n")
 		}
 		content = b.String()
 		statusHint = "enter/esc return home • q quit"

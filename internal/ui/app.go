@@ -133,6 +133,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.currentView = msg.View
 		}
+		if msg.View == views.ViewBackup {
+			m.backup.Reset(m.entries)
+		} else if msg.View == views.ViewSetup {
+			m.setup.Reset(m.entries)
+		}
 		m.springPos = 0.0
 		m.springVel = 0.0
 		return m, initCmd
@@ -151,6 +156,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.edit = views.NewEditModel(m.entries, m.cfg)
 
 		sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
+		m.home, _ = m.home.Update(sizeMsg)
 		m.backup, _ = m.backup.Update(sizeMsg)
 		m.setup, _ = m.setup.Update(sizeMsg)
 		m.edit, _ = m.edit.Update(sizeMsg)
