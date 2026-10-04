@@ -146,11 +146,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		// Universal quit with 'q' or Ctrl+C from ANY page/view
-		if msg.Type == tea.KeyCtrlC || msg.String() == "q" {
-			// Do not quit with 'q' if user is currently typing in an input field
-			if m.currentView == views.ViewAddConfig || m.currentView == views.ViewWizard {
-				// Let child view handle typing
-			} else {
+		if msg.Type == tea.KeyCtrlC {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		if msg.String() == "q" {
+			isTyping := false
+			if m.currentView == views.ViewAddConfig {
+				isTyping = m.addConfig.IsTyping()
+			} else if m.currentView == views.ViewWizard {
+				isTyping = m.wizard.IsTyping()
+			}
+			if !isTyping {
 				m.quitting = true
 				return m, tea.Quit
 			}
@@ -174,8 +181,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Path != "" {
 				m.addConfig.PreFill(msg.Path)
 			}
+			if m.width > 0 && m.height > 0 {
+				sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
+				m.addConfig, _ = m.addConfig.Update(sizeMsg)
+			}
 		} else if msg.View == views.ViewWizard {
 			m.wizard = views.NewWizardModel(m.cfg)
+			if m.width > 0 && m.height > 0 {
+				sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
+				m.wizard, _ = m.wizard.Update(sizeMsg)
+			}
 			initCmd = m.wizard.Init()
 		} else if msg.View == views.ViewHome {
 			// Reload entries in case new configs were added

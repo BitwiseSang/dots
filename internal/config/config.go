@@ -133,3 +133,38 @@ func (c *Config) AddDotfile(spec DotfileSpec) bool {
 	c.Dotfiles = append(c.Dotfiles, spec)
 	return true // added new
 }
+
+// LoadFromPath loads a Config from an explicit file path.
+func LoadFromPath(configPath string) (*Config, error) {
+	data, err := os.ReadFile(ExpandPath(configPath))
+	if err != nil {
+		return nil, err
+	}
+	cfg := *DefaultConfig()
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// FindRepoConfigFile checks if a dotfiles repository contains a dots config file.
+// Common locations checked:
+// 1. dots/config.toml
+// 2. .config/dots/config.toml
+// 3. config.toml
+// 4. .dots.toml
+func FindRepoConfigFile(repoPath string) string {
+	abs := ExpandPath(repoPath)
+	candidates := []string{
+		filepath.Join(abs, "dots", "config.toml"),
+		filepath.Join(abs, ".config", "dots", "config.toml"),
+		filepath.Join(abs, "config.toml"),
+		filepath.Join(abs, ".dots.toml"),
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			return c
+		}
+	}
+	return ""
+}

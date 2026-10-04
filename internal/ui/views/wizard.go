@@ -20,29 +20,40 @@ type wizardStep int
 
 const (
 	wizardStepRepo wizardStep = iota
+	wizardStepCloning
 	wizardStepEditor
 	wizardStepGit
 	wizardStepDiscover
 	wizardStepComplete
 )
 
+type cloneFinishedMsg struct {
+	err      error
+	repoPath string
+}
+
 type WizardModel struct {
-	cfg        *config.Config
-	step       wizardStep
-	repoInput  textinput.Model
-	editorOpts []string
-	editorIdx  int
-	autoCommit bool
-	autoPush   bool
-	gitOptIdx  int // 0: commit toggle, 1: push toggle
-	selector   components.Selector
-	discovered []dotfile.DiscoveredConfig
-	spinner    spinner.Model
-	statusMsg  string
-	err        error
-	width      int
-	height     int
-	animStep   int
+	cfg            *config.Config
+	step           wizardStep
+	repoInput      textinput.Model
+	repoPath       string
+	resolvedLocal  string
+	resolvedRemote string
+	isRemote       bool
+	cloneErr       error
+	editorOpts     []string
+	editorIdx      int
+	autoCommit     bool
+	autoPush       bool
+	gitOptIdx      int // 0: commit toggle, 1: push toggle
+	selector       components.Selector
+	repoSpecs      []config.DotfileSpec
+	foundRepoCfg   bool
+	spinner        spinner.Model
+	err            error
+	width          int
+	height         int
+	animStep       int
 }
 
 func NewWizardModel(cfg *config.Config) WizardModel {
@@ -55,7 +66,6 @@ func NewWizardModel(cfg *config.Config) WizardModel {
 	repoTi.CharLimit = 80
 	repoTi.Focus()
 
-	// Default to detected repo or ~/dotfiles
 	defaultRepo := "~/dotfiles"
 	if cfg != nil && cfg.RepoPath != "" {
 		defaultRepo = cfg.RepoPath
@@ -80,23 +90,7 @@ func NewWizardModel(cfg *config.Config) WizardModel {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
 
-	// Discover existing system configs
-	discovered := dotfile.DiscoverSystemConfigs(cfg)
-	items := make([]components.SelectorItem, len(discovered))
-	for i, d := range discovered {
-		typeLabel := "file"
-		if d.IsDir {
-			typeLabel = "directory"
-		}
-		items[i] = components.SelectorItem{
-			Name:     d.Name,
-			Desc:     typeLabel,
-			Path:     d.SystemPath,
-			IsDir:    d.IsDir,
-			Selected: true, // Select all detected by default
-		}
-	}
-	sel := components.NewSelector(items)
+	sel := components.NewSelector(nil)
 	sel.ActiveColor = theme.Secondary
 	sel.CheckColor = theme.Success
 
@@ -110,10 +104,19 @@ func NewWizardModel(cfg *config.Config) WizardModel {
 		autoPush:   false,
 		gitOptIdx:  0,
 		selector:   sel,
-		discovered: discovered,
 		spinner:    sp,
 		animStep:   0,
 	}
+}
+
+func (m WizardModel) IsTyping() bool {
+	if m.step == wizardStepRepo {
+		return true
+	}
+	if m.step == wizardStepDiscover && m.selector.IsFiltering() {
+		return true
+	}
+	return false
 }
 
 func (m WizardModel) Init() tea.Cmd {
@@ -133,6 +136,13 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
+	case cloneFinishedMsg:
+		if msg.err != nil {
+			m.cloneErr = msg.err
+			return m, nil
+		}
+		return m.loadRepoAndAdvance(msg.repoPath)
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -140,7 +150,7 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 		if msg.Height > 0 && msg.Height < 28 {
 			headerLines = 5
 		}
-		avail := msg.Height - headerLines - 5
+		avail := msg.Height - headerLines - 6
 		if avail < 3 {
 			avail = 3
 		}
@@ -156,11 +166,30 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 					val = "~/dotfiles"
 				}
 				isRemote, remoteURL, localPath := git.ResolveRepoInput(val)
+				m.repoPath = val
+				m.resolvedLocal = localPath
+				m.resolvedRemote = remoteURL
+				m.isRemote = isRemote
+
 				if isRemote {
-					m.statusMsg = fmt.Sprintf("Will clone %s into %s", remoteURL, localPath)
+					if fi, err := os.Stat(localPath); err == nil && fi.IsDir() {
+						return m.loadRepoAndAdvance(localPath)
+					}
+					m.step = wizardStepCloning
+					m.cloneErr = nil
+					return m, tea.Batch(
+						m.spinner.Tick,
+						func() tea.Msg {
+							err := git.Clone(remoteURL, localPath)
+							return cloneFinishedMsg{err: err, repoPath: localPath}
+						},
+					)
+				} else {
+					if _, err := os.Stat(localPath); os.IsNotExist(err) {
+						_ = git.InitRepo(localPath)
+					}
+					return m.loadRepoAndAdvance(localPath)
 				}
-				m.step = wizardStepEditor
-				return m, nil
 			case "esc":
 				return m, func() tea.Msg {
 					return NavigateMsg{View: ViewHome}
@@ -169,8 +198,42 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 			m.repoInput, cmd = m.repoInput.Update(msg)
 			return m, cmd
 
+		case wizardStepCloning:
+			if m.cloneErr != nil {
+				switch msg.String() {
+				case "r":
+					m.cloneErr = nil
+					remoteURL := m.resolvedRemote
+					localPath := m.resolvedLocal
+					return m, tea.Batch(
+						m.spinner.Tick,
+						func() tea.Msg {
+							err := git.Clone(remoteURL, localPath)
+							return cloneFinishedMsg{err: err, repoPath: localPath}
+						},
+					)
+				case "esc":
+					m.step = wizardStepRepo
+					return m, nil
+				case "q":
+					return m, func() tea.Msg {
+						return NavigateMsg{View: ViewHome}
+					}
+				}
+			} else {
+				if msg.String() == "q" {
+					return m, func() tea.Msg {
+						return NavigateMsg{View: ViewHome}
+					}
+				}
+			}
+
 		case wizardStepEditor:
 			switch msg.String() {
+			case "q":
+				return m, func() tea.Msg {
+					return NavigateMsg{View: ViewHome}
+				}
 			case "up", "k":
 				if m.editorIdx > 0 {
 					m.editorIdx--
@@ -189,6 +252,10 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 
 		case wizardStepGit:
 			switch msg.String() {
+			case "q":
+				return m, func() tea.Msg {
+					return NavigateMsg{View: ViewHome}
+				}
 			case "up", "k", "down", "j", "tab":
 				m.gitOptIdx = (m.gitOptIdx + 1) % 2
 			case " ":
@@ -212,6 +279,10 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 			}
 
 			switch msg.String() {
+			case "q":
+				return m, func() tea.Msg {
+					return NavigateMsg{View: ViewHome}
+				}
 			case "esc":
 				if m.selector.HasFilter() {
 					m.selector.ClearFilter()
@@ -220,7 +291,6 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 				m.step = wizardStepGit
 				return m, nil
 			case "enter":
-				// Finalize and save configuration!
 				return m.finalizeSetup()
 			}
 			m.selector, cmd = m.selector.Update(msg)
@@ -228,7 +298,7 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 
 		case wizardStepComplete:
 			switch msg.String() {
-			case "enter", "esc":
+			case "enter", "esc", "q":
 				return m, func() tea.Msg {
 					return NavigateMsg{View: ViewHome}
 				}
@@ -239,28 +309,67 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func (m WizardModel) loadRepoAndAdvance(repoPath string) (WizardModel, tea.Cmd) {
+	specs, repoCfg, _ := dotfile.InspectRepository(repoPath)
+	if repoCfg != nil {
+		if repoCfg.Editor != "" {
+			for i, ed := range m.editorOpts {
+				if ed == repoCfg.Editor {
+					m.editorIdx = i
+					break
+				}
+			}
+		}
+		if repoCfg.Git.AutoCommit {
+			m.autoCommit = true
+		}
+		if repoCfg.Git.AutoPush {
+			m.autoPush = true
+		}
+	}
+
+	m.foundRepoCfg = config.FindRepoConfigFile(repoPath) != ""
+	m.repoSpecs = specs
+
+	items := make([]components.SelectorItem, len(specs))
+	for i, s := range specs {
+		typeLabel := "file"
+		if s.IsDir {
+			typeLabel = "directory"
+		}
+		items[i] = components.SelectorItem{
+			Name:     s.Name,
+			Desc:     typeLabel,
+			Path:     s.SystemPath,
+			IsDir:    s.IsDir,
+			Selected: true,
+		}
+	}
+
+	m.selector = components.NewSelector(items)
+	m.selector.ActiveColor = theme.Secondary
+	m.selector.CheckColor = theme.Success
+
+	headerLines := 13
+	if m.height > 0 && m.height < 28 {
+		headerLines = 5
+	}
+	avail := m.height - headerLines - 6
+	if avail < 3 {
+		avail = 3
+	}
+	m.selector.SetSize(m.width, avail)
+
+	m.step = wizardStepEditor
+	return m, nil
+}
+
 func (m WizardModel) finalizeSetup() (WizardModel, tea.Cmd) {
 	val := strings.TrimSpace(m.repoInput.Value())
 	if val == "" {
 		val = "~/dotfiles"
 	}
-	isRemote, remoteURL, localPath := git.ResolveRepoInput(val)
 
-	if isRemote {
-		// If remote, attempt to clone if localPath doesn't exist
-		if _, err := os.Stat(localPath); os.IsNotExist(err) {
-			_ = git.Clone(remoteURL, localPath)
-		}
-	} else {
-		// Ensure local repo directory exists and has git repo initialized
-		if _, err := os.Stat(localPath); os.IsNotExist(err) {
-			_ = git.InitRepo(localPath)
-		} else if !git.IsRepo(localPath) {
-			_ = git.InitRepo(localPath)
-		}
-	}
-
-	// Build new config
 	newCfg := &config.Config{
 		Editor:   m.editorOpts[m.editorIdx],
 		RepoPath: val,
@@ -271,7 +380,6 @@ func (m WizardModel) finalizeSetup() (WizardModel, tea.Cmd) {
 		},
 	}
 
-	// Add selected dotfiles
 	selected := m.selector.SelectedItems()
 	for _, item := range selected {
 		method := "copy"
@@ -339,6 +447,23 @@ func (m WizardModel) View() string {
 		)
 		statusHint = "type repo path • enter next • esc cancel • q quit"
 
+	case wizardStepCloning:
+		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[1/4] Cloning Repository") + "\n\n"
+
+		if m.cloneErr != nil {
+			errBox := indent + lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("✗ Failed to clone repository:") + "\n\n" +
+				indent + lipgloss.NewStyle().Foreground(theme.Muted).Render(m.cloneErr.Error()) + "\n\n" +
+				indent + lipgloss.NewStyle().Foreground(theme.Secondary).Render("Press [r] to retry or [esc] to change repository path.")
+			content = lipgloss.JoinVertical(lipgloss.Left, stepTitle, errBox)
+			statusHint = "r retry • esc back • q quit"
+		} else {
+			spinnerText := indent + m.spinner.View() + " " +
+				lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true).Render(fmt.Sprintf("Cloning %s into %s...", m.resolvedRemote, shortenHome(m.resolvedLocal))) + "\n\n"
+			hint := indent + lipgloss.NewStyle().Foreground(theme.Muted).Render("Please wait while your configurations are fetched from the remote repository...")
+			content = lipgloss.JoinVertical(lipgloss.Left, stepTitle, spinnerText, hint)
+			statusHint = "cloning in progress... • q quit"
+		}
+
 	case wizardStepEditor:
 		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[2/4] Preferred Text Editor") + "\n\n"
 		desc := indent + lipgloss.NewStyle().Foreground(theme.Text).Render("Select which editor dots will launch when editing configurations:") + "\n\n"
@@ -401,8 +526,12 @@ func (m WizardModel) View() string {
 		statusHint = "↑/↓ navigate • space toggle • enter next • esc back • q quit"
 
 	case wizardStepDiscover:
-		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[4/4] Initial Configurations")
-		desc := indent + lipgloss.NewStyle().Foreground(theme.Text).Render("Select which discovered configurations to track initially:")
+		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[4/4] Repository Configurations")
+		descText := "Select which configurations from your repository you want to link:"
+		if m.foundRepoCfg {
+			descText = "Detected existing configuration file in repository. Select configs to manage:"
+		}
+		desc := indent + lipgloss.NewStyle().Foreground(theme.Text).Render(descText)
 
 		headerLines := 13
 		if m.height > 0 && m.height < 28 {

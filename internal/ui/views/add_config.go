@@ -77,6 +77,16 @@ func NewAddConfigModel(cfg *config.Config) AddConfigModel {
 	return m
 }
 
+func (m AddConfigModel) IsTyping() bool {
+	if m.mode == modeManual && m.formIndex < 3 {
+		return true
+	}
+	if m.mode == modeDiscover && m.selector.IsFiltering() {
+		return true
+	}
+	return false
+}
+
 func (m *AddConfigModel) refreshDiscover() {
 	discovered := dotfile.DiscoverSystemConfigs(m.cfg)
 	var unmanaged []dotfile.DiscoveredConfig
@@ -113,8 +123,9 @@ func (m *AddConfigModel) PreFill(path string) {
 	isDir := err == nil && fi.IsDir()
 
 	base := filepath.Base(expanded)
-	name := strings.TrimSuffix(base, filepath.Ext(base))
-	if name == "" || name == "." {
+	name := strings.TrimPrefix(base, ".")
+	name = strings.TrimSuffix(name, filepath.Ext(name))
+	if name == "" {
 		name = base
 	}
 
@@ -145,7 +156,15 @@ func (m AddConfigModel) Update(msg tea.Msg) (AddConfigModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.selector.SetSize(msg.Width, msg.Height-14)
+		headerLines := 13
+		if msg.Height > 0 && msg.Height < 28 {
+			headerLines = 5
+		}
+		avail := msg.Height - headerLines - 6
+		if avail < 3 {
+			avail = 3
+		}
+		m.selector.SetSize(msg.Width, avail)
 
 	case tea.KeyMsg:
 		switch m.mode {
@@ -157,6 +176,10 @@ func (m AddConfigModel) Update(msg tea.Msg) (AddConfigModel, tea.Cmd) {
 			}
 
 			switch msg.String() {
+			case "q":
+				return m, func() tea.Msg {
+					return NavigateMsg{View: ViewHome}
+				}
 			case "esc":
 				if m.selector.HasFilter() {
 					m.selector.ClearFilter()
@@ -175,7 +198,6 @@ func (m AddConfigModel) Update(msg tea.Msg) (AddConfigModel, tea.Cmd) {
 			case "enter":
 				selected := m.selector.SelectedItems()
 				if len(selected) == 0 && len(m.discovered) > 0 {
-					// Add the currently highlighted item if none checked
 					idx := m.selector.CursorIndex()
 					if idx >= 0 && idx < len(m.discovered) {
 						selected = append(selected, m.selector.Items[idx])
@@ -287,7 +309,7 @@ func (m AddConfigModel) Update(msg tea.Msg) (AddConfigModel, tea.Cmd) {
 
 		case modeSuccess:
 			switch msg.String() {
-			case "enter", "esc":
+			case "enter", "esc", "q":
 				return m, func() tea.Msg {
 					return NavigateMsg{View: ViewHome}
 				}
@@ -333,12 +355,22 @@ func (m AddConfigModel) View() string {
 	switch m.mode {
 	case modeDiscover:
 		tabHeader := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[Discovered Configurations]") +
-			"   " + lipgloss.NewStyle().Foreground(theme.Muted).Render("[Tab] Switch to Manual Form") + "\n\n"
+			"   " + lipgloss.NewStyle().Foreground(theme.Muted).Render("[Tab] Switch to Manual Form")
 
 		title := indent + lipgloss.NewStyle().
 			Bold(true).
 			Foreground(theme.Secondary).
 			Render("Select unmanaged configurations to track in dots:")
+
+		headerLines := 13
+		if m.height > 0 && m.height < 28 {
+			headerLines = 5
+		}
+		avail := m.height - headerLines - 6
+		if avail < 3 {
+			avail = 3
+		}
+		m.selector.SetSize(m.width, avail)
 
 		selLines := strings.Split(m.selector.View(), "\n")
 		var indentedSel []string
@@ -349,6 +381,7 @@ func (m AddConfigModel) View() string {
 		content = lipgloss.JoinVertical(
 			lipgloss.Left,
 			tabHeader,
+			"",
 			title,
 			"",
 			strings.Join(indentedSel, "\n"),
@@ -362,7 +395,7 @@ func (m AddConfigModel) View() string {
 
 	case modeManual:
 		tabHeader := indent + lipgloss.NewStyle().Foreground(theme.Muted).Render("[Esc] Back to Discovered") +
-			"   " + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[Manual Configuration Form]") + "\n\n"
+			"   " + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[Manual Configuration Form]")
 
 		title := indent + lipgloss.NewStyle().
 			Bold(true).
@@ -393,6 +426,7 @@ func (m AddConfigModel) View() string {
 		content = lipgloss.JoinVertical(
 			lipgloss.Left,
 			tabHeader,
+			"",
 			title,
 			"",
 			strings.Join(formRows, "\n"),
