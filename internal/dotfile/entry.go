@@ -139,7 +139,7 @@ func (e Entry) StatusLabel() string {
 	case StatusMissing:
 		return "∅ Missing"
 	case StatusLinked:
-		return "🔗 Linked"
+		return " Linked"
 	case StatusUnlinked:
 		return "Unlinked"
 	case StatusRepoMissing:

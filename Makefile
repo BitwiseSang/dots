@@ -8,7 +8,7 @@ build:
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_PATH)
 
 install: build
-	cp $(BUILD_DIR)/$(BINARY_NAME) $(HOME)/.local/bin/$(BINARY_NAME)
+	install -m 755 $(BUILD_DIR)/$(BINARY_NAME) $(HOME)/.local/bin/$(BINARY_NAME)
 
 clean:
 	rm -f $(BUILD_DIR)/$(BINARY_NAME)

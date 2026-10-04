@@ -114,7 +114,11 @@ func (m BackupModel) Update(msg tea.Msg) (BackupModel, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.selector.SetSize(msg.Width, msg.Height-14)
-		m.vp.Width = msg.Width - 4
+		padLeft := (msg.Width - 66) / 2
+		if padLeft < 2 {
+			padLeft = 2
+		}
+		m.vp.Width = msg.Width - (padLeft * 2)
 		m.vp.Height = msg.Height - 16
 
 	case backupDoneMsg:
@@ -239,14 +243,20 @@ func (m BackupModel) generateDiff(indices []int) string {
 		entry := m.entries[idx]
 		d, err := dotfile.Diff(entry)
 		if err != nil {
-			b.WriteString(theme.ErrorStyle.Render(fmt.Sprintf("%s Error diffing %s: %v\n", theme.IconChanged, entry.Name, err)))
+			errStr := fmt.Sprintf("%s Error diffing %s: %v", theme.IconChanged, entry.Name, err)
+			b.WriteString(theme.ErrorStyle.Render(errStr) + "\n")
 			continue
 		}
 
 		if d == "" {
-			b.WriteString(theme.MutedStyle.Render(fmt.Sprintf("%s No changes for %s\n", theme.IconInSync, entry.Name)))
+			iconStr := lipgloss.NewStyle().Width(3).Foreground(theme.Success).Render(theme.IconInSync)
+			textStr := lipgloss.NewStyle().Foreground(theme.Muted).Render("No changes for " + entry.Name)
+			b.WriteString(iconStr + textStr + "\n")
 			continue
 		}
+
+		headerStr := lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render(fmt.Sprintf("─── %s ───", entry.Name))
+		b.WriteString(headerStr + "\n")
 
 		lines := strings.Split(d, "\n")
 		for _, line := range lines {
@@ -307,11 +317,18 @@ func (m BackupModel) View() string {
 			Bold(true).
 			Foreground(theme.Secondary).
 			Render("Diff Preview (System ↔ Repository):")
+
+		prevLines := strings.Split(m.vp.View(), "\n")
+		var indentedPrev []string
+		for _, l := range prevLines {
+			indentedPrev = append(indentedPrev, indent+l)
+		}
+
 		content = lipgloss.JoinVertical(
 			lipgloss.Left,
 			diffTitle,
 			"",
-			m.vp.View(),
+			strings.Join(indentedPrev, "\n"),
 		)
 		statusHint = "up/down scroll • enter confirm backup • esc back • q quit"
 

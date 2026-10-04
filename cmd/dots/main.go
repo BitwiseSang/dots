@@ -152,8 +152,11 @@ func runDirectEdit(name string) error {
 	ed := editor.Resolve(cfg.Editor)
 	targetPath := targetEntry.EditPath()
 
-	fmt.Printf("%s Opening %s with %s (%s)...\n",
-		theme.SelectedStyle.Render("✏️ "),
+	icon, iconColor := theme.FileIconStyled(targetEntry.Name, targetEntry.IsDir)
+	coloredIcon := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(icon + " ")
+
+	fmt.Printf("%sOpening %s with %s (%s)...\n",
+		coloredIcon,
 		lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Render(targetEntry.Name),
 		theme.SubtitleStyle.Render(ed),
 		theme.MutedStyle.Render(targetPath),

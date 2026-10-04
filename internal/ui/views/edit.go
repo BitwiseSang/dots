@@ -11,6 +11,7 @@ import (
 	"github.com/BitwiseSang/dots/internal/ui/components"
 	"github.com/BitwiseSang/dots/internal/ui/theme"
 	"github.com/charmbracelet/bubbles/filepicker"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -51,10 +52,13 @@ func NewEditModel(entries []dotfile.Entry, cfg *config.Config) EditModel {
 	}
 	fp.CurrentDirectory = startDir
 	fp.ShowHidden = true
-	fp.DirAllowed = true
+	fp.DirAllowed = false // DirAllowed=false allows Enter to drill/traverse into directories
 	fp.FileAllowed = true
 	fp.AutoHeight = false
 	fp.Height = 14
+
+	// Exclude esc from Back so esc strictly navigates to Home
+	fp.KeyMap.Back = key.NewBinding(key.WithKeys("h", "backspace", "left"))
 
 	fp.Styles.Cursor = lipgloss.NewStyle().Foreground(theme.Pink).Bold(true)
 	fp.Styles.Directory = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
@@ -94,10 +98,6 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
-			if m.mode == modeFilePicker {
-				m.mode = modeConfigList
-				return m, nil
-			}
 			return m, func() tea.Msg {
 				return NavigateMsg{View: ViewHome}
 			}
@@ -125,6 +125,20 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 			case "enter":
 				if len(m.entries) > 0 {
 					entry := m.entries[m.cursor]
+					if entry.IsDir {
+						m.mode = modeFilePicker
+						m.fp.CurrentDirectory = entry.EditPath()
+						return m, m.fp.Init()
+					}
+					path := entry.EditPath()
+					ed := editor.Resolve(m.cfg.Editor)
+					return m, func() tea.Msg {
+						return OpenEditorMsg{Path: path, Editor: ed}
+					}
+				}
+			case "o", "O":
+				if len(m.entries) > 0 {
+					entry := m.entries[m.cursor]
 					path := entry.EditPath()
 					ed := editor.Resolve(m.cfg.Editor)
 					return m, func() tea.Msg {
@@ -133,6 +147,16 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 				}
 			}
 			return m, nil
+		}
+
+		if m.mode == modeFilePicker {
+			if msg.String() == "o" || msg.String() == "O" {
+				ed := editor.Resolve(m.cfg.Editor)
+				dirToOpen := m.fp.CurrentDirectory
+				return m, func() tea.Msg {
+					return OpenEditorMsg{Path: dirToOpen, Editor: ed}
+				}
+			}
 		}
 	}
 
@@ -153,7 +177,7 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// decorateFilePickerLines adds appropriate Nerd Font icons to items rendered by filepicker.
+// decorateFilePickerLines adds appropriate Nerd Font icons and colors to items rendered by filepicker.
 func decorateFilePickerLines(rawView string, indent string) string {
 	lines := strings.Split(rawView, "\n")
 	var decorated []string
@@ -180,13 +204,8 @@ func decorateFilePickerLines(rawView string, indent string) string {
 		isDir := strings.HasSuffix(lastWord, "/")
 		cleanName := strings.TrimSuffix(lastWord, "/")
 
-		icon := theme.FileIcon(cleanName, isDir)
-		iconColor := theme.Secondary
-		if isDir {
-			iconColor = theme.Pink
-		}
-
-		coloredIcon := lipgloss.NewStyle().Width(3).Foreground(iconColor).Render(icon)
+		icon, iconColor := theme.FileIconStyled(cleanName, isDir)
+		coloredIcon := lipgloss.NewStyle().Width(3).Foreground(iconColor).Render(icon + " ")
 
 		if strings.Contains(line, ">") || strings.Contains(line, "❯") {
 			cursorStr := lipgloss.NewStyle().Width(3).Foreground(theme.Pink).Bold(true).Render(theme.IconCursor + " ")
@@ -208,34 +227,30 @@ func (m EditModel) View() string {
 
 	var contentBuilder strings.Builder
 
-	// Mode tabs
-	tabList := lipgloss.NewStyle().Foreground(theme.Text).Render(" Config Dotfiles ")
-	tabPicker := lipgloss.NewStyle().Foreground(theme.Text).Render(" Filesystem Browser ")
-
-	if m.mode == modeConfigList {
-		tabList = lipgloss.NewStyle().Foreground(theme.Pink).Bold(true).Underline(true).Render(" [Config Dotfiles] ")
-		tabPicker = lipgloss.NewStyle().Foreground(theme.Muted).Render("  Filesystem Browser (f/tab)  ")
-	} else {
-		tabList = lipgloss.NewStyle().Foreground(theme.Muted).Render("  Config Dotfiles (tab)  ")
-		tabPicker = lipgloss.NewStyle().Foreground(theme.Pink).Bold(true).Underline(true).Render(" [Filesystem Browser] ")
-	}
-
-	tabsBar := lipgloss.JoinHorizontal(lipgloss.Center, tabList, "  •  ", tabPicker)
-	contentBuilder.WriteString(lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(tabsBar) + "\n\n")
-
 	// Calculate horizontal indent for left-aligned block centering
-	blockWidth := 60
+	blockWidth := 66
 	padLeft := (m.width - blockWidth) / 2
 	if padLeft < 2 {
 		padLeft = 2
 	}
 	indent := strings.Repeat(" ", padLeft)
 
+	// Clean, consistent page titles matching Setup and Backup
+	titleText := "Select configurations to open in your editor:"
+	if m.mode == modeFilePicker {
+		titleText = "Browse filesystem to open configurations:"
+	}
+	title := indent + lipgloss.NewStyle().
+		Bold(true).
+		Foreground(theme.Pink).
+		Render(titleText)
+	contentBuilder.WriteString(title + "\n\n")
+
 	if m.mode == modeFilePicker {
 		currentDirBadge := indent + lipgloss.NewStyle().
 			Foreground(theme.Secondary).
 			Bold(true).
-			Render(theme.IconDir+" "+m.fp.CurrentDirectory)
+			Render(theme.IconDirModern+" "+shortenHome(m.fp.CurrentDirectory))
 
 		fpView := decorateFilePickerLines(m.fp.View(), indent)
 
@@ -257,8 +272,8 @@ func (m EditModel) View() string {
 				cursorStr = cursorStyle.Foreground(theme.Pink).Bold(true).Render(theme.IconCursor + " ")
 			}
 
-			iconStyle := lipgloss.NewStyle().Width(3).Foreground(theme.Secondary)
-			iconStr := iconStyle.Render(theme.FileIcon(entry.Name, entry.IsDir))
+			icon, iconColor := theme.FileIconStyled(entry.Name, entry.IsDir)
+			iconStr := lipgloss.NewStyle().Width(3).Foreground(iconColor).Render(icon + " ")
 
 			nameStyle := lipgloss.NewStyle().Width(18)
 			if isSelected {
@@ -268,7 +283,7 @@ func (m EditModel) View() string {
 			}
 			nameStr := nameStyle.Render(entry.Name)
 
-			pathStr := lipgloss.NewStyle().Foreground(theme.Muted).Render(entry.EditPath())
+			pathStr := lipgloss.NewStyle().Foreground(theme.Muted).Render(shortenHome(entry.EditPath()))
 
 			row := indent + lipgloss.JoinHorizontal(
 				lipgloss.Left,
@@ -296,9 +311,9 @@ func (m EditModel) View() string {
 	}
 	padded := lipgloss.JoinVertical(lipgloss.Top, header, content, strings.Repeat("\n", padHeight))
 
-	hint := "j/k move • enter edit • f/tab browse files • esc back • q quit"
+	hint := "j/k move • enter edit/browse • o open dir • f/tab browse files • esc back • q quit"
 	if m.mode == modeFilePicker {
-		hint = "j/k move • enter open • h parent • tab switch back • esc back • q quit"
+		hint = "j/k move • enter open/traverse • o open dir in nvim • h parent • tab list • esc back • q quit"
 	}
 
 	statusBar := components.StatusBar("Edit", hint, m.width)

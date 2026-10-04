@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/BitwiseSang/dots/internal/config"
@@ -114,7 +115,11 @@ func (m SetupModel) Update(msg tea.Msg) (SetupModel, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.selector.SetSize(msg.Width, msg.Height-14)
-		m.vp.Width = msg.Width - 4
+		padLeft := (msg.Width - 66) / 2
+		if padLeft < 2 {
+			padLeft = 2
+		}
+		m.vp.Width = msg.Width - (padLeft * 2)
 		m.vp.Height = msg.Height - 16
 
 	case setupDoneMsg:
@@ -183,26 +188,45 @@ func (m SetupModel) Update(msg tea.Msg) (SetupModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func shortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err == nil && strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
+}
+
 func (m SetupModel) generatePreview(indices []int) string {
 	var b strings.Builder
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A855F7")).Render("The following symlinks will be created:")
 	b.WriteString(title + "\n\n")
 
+	wrapWidth := m.vp.Width - 8
+	if wrapWidth < 40 {
+		wrapWidth = 40
+	}
+	lineStyle := lipgloss.NewStyle().Width(wrapWidth)
+
 	for _, idx := range indices {
 		entry := m.entries[idx]
 
-		icon := theme.FileIcon(entry.Name, entry.IsDir)
-		src := lipgloss.NewStyle().Foreground(theme.Accent).Render(entry.AbsRepoPath())
-		dst := lipgloss.NewStyle().Foreground(theme.Primary).Render(entry.ResolveSystemPath())
-		arrow := lipgloss.NewStyle().Foreground(theme.Secondary).Render(" ➜ ")
+		icon, iconColor := theme.FileIconStyled(entry.Name, entry.IsDir)
+		coloredIcon := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(icon + " ")
+		nameStr := lipgloss.NewStyle().Bold(true).Foreground(theme.Text).Render(entry.Name)
 
-		nameStr := lipgloss.NewStyle().Width(16).Bold(true).Render(entry.Name)
-		b.WriteString(fmt.Sprintf("  %s %s\n      %s%s%s\n\n",
-			icon,
+		srcShort := shortenHome(entry.AbsRepoPath())
+		dstShort := shortenHome(entry.ResolveSystemPath())
+
+		srcRendered := lineStyle.Render(lipgloss.NewStyle().Foreground(theme.Accent).Render(srcShort))
+		dstRendered := lineStyle.Render(lipgloss.NewStyle().Foreground(theme.Primary).Render(dstShort))
+		arrow := lipgloss.NewStyle().Foreground(theme.Secondary).Render("➜ ")
+
+		b.WriteString(fmt.Sprintf("  %s%s\n      %s\n    %s%s\n\n",
+			coloredIcon,
 			nameStr,
-			src,
+			srcRendered,
 			arrow,
-			dst,
+			dstRendered,
 		))
 	}
 	return b.String()
