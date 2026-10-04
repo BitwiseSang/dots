@@ -173,9 +173,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				initCmd = m.browse.Refresh()
 			}
 		} else if msg.View == views.ViewBackup {
+			m.entries = dotfile.LoadEntries(m.cfg)
 			m.backup.Reset(m.entries)
 		} else if msg.View == views.ViewSetup {
+			m.entries = dotfile.LoadEntries(m.cfg)
 			m.setup.Reset(m.entries)
+		} else if msg.View == views.ViewEdit {
+			m.entries = dotfile.LoadEntries(m.cfg)
+			m.edit = views.NewEditModel(m.entries, m.cfg)
 		} else if msg.View == views.ViewAddConfig {
 			m.addConfig = views.NewAddConfigModel(m.cfg)
 			if msg.Path != "" {

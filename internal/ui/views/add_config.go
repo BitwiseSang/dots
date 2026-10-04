@@ -20,6 +20,7 @@ type addConfigMode int
 const (
 	modeDiscover addConfigMode = iota
 	modeManual
+	modePromptSymlink
 	modeSuccess
 )
 
@@ -35,6 +36,15 @@ type AddConfigModel struct {
 	repoInput   textinput.Model
 	methodIndex int // 0: rsync, 1: copy
 	formIndex   int // 0: name, 1: system, 2: repo, 3: method, 4: save button
+
+	// Prompt & result tracking
+	pendingSpecs   []config.DotfileSpec
+	promptPrevMode addConfigMode
+	addedCount     int
+	symlinkedCount int
+	backedUpCount  int
+	backupDir      string
+	symlinkCreated bool
 
 	successMsg string
 	width      int
@@ -205,27 +215,24 @@ func (m AddConfigModel) Update(msg tea.Msg) (AddConfigModel, tea.Cmd) {
 				}
 
 				if len(selected) > 0 {
-					count := 0
+					var pending []config.DotfileSpec
 					for _, item := range selected {
 						isDir := item.IsDir
 						method := "copy"
 						if isDir {
 							method = "rsync"
 						}
-						spec := config.DotfileSpec{
+						pending = append(pending, config.DotfileSpec{
 							Name:       item.Name,
 							SystemPath: item.Path,
 							RepoPath:   item.Name,
 							Method:     method,
 							IsDir:      isDir,
-						}
-						if m.cfg.AddDotfile(spec) {
-							count++
-						}
+						})
 					}
-					_ = config.Save(m.cfg)
-					m.mode = modeSuccess
-					m.successMsg = fmt.Sprintf("Successfully added %d configuration(s) to dots!", count)
+					m.pendingSpecs = pending
+					m.promptPrevMode = modeDiscover
+					m.mode = modePromptSymlink
 					return m, nil
 				}
 			}
@@ -284,10 +291,9 @@ func (m AddConfigModel) Update(msg tea.Msg) (AddConfigModel, tea.Cmd) {
 						IsDir:      isDir,
 					}
 
-					m.cfg.AddDotfile(spec)
-					_ = config.Save(m.cfg)
-					m.mode = modeSuccess
-					m.successMsg = fmt.Sprintf("Successfully added '%s' to dots!", name)
+					m.pendingSpecs = []config.DotfileSpec{spec}
+					m.promptPrevMode = modeManual
+					m.mode = modePromptSymlink
 					return m, nil
 				}
 			}
@@ -307,6 +313,23 @@ func (m AddConfigModel) Update(msg tea.Msg) (AddConfigModel, tea.Cmd) {
 			}
 			return m, cmd
 
+		case modePromptSymlink:
+			switch msg.String() {
+			case "y", "Y", "enter":
+				m.applyAddConfigs(true)
+				return m, nil
+			case "n", "N":
+				m.applyAddConfigs(false)
+				return m, nil
+			case "esc":
+				m.mode = m.promptPrevMode
+				return m, nil
+			case "q":
+				return m, func() tea.Msg {
+					return NavigateMsg{View: ViewHome}
+				}
+			}
+
 		case modeSuccess:
 			switch msg.String() {
 			case "enter", "esc", "q":
@@ -318,6 +341,60 @@ func (m AddConfigModel) Update(msg tea.Msg) (AddConfigModel, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *AddConfigModel) applyAddConfigs(createSymlinks bool) {
+	var backupDir string
+	if createSymlinks {
+		var err error
+		backupDir, err = dotfile.CreateBackupDir()
+		if err != nil {
+			m.successMsg = fmt.Sprintf("Error creating backup directory: %v", err)
+			m.mode = modeSuccess
+			return
+		}
+	}
+
+	symlinkCount := 0
+	backupCount := 0
+	addedCount := 0
+
+	for _, spec := range m.pendingSpecs {
+		if m.cfg.AddDotfile(spec) {
+			addedCount++
+		}
+
+		entry := dotfile.NewEntry(spec, m.cfg.RepoPath)
+		absRepo := entry.AbsRepoPath()
+		sysPath := entry.ResolveSystemPath()
+
+		// 1. Ensure the dotfile exists in the repo
+		if _, statErr := os.Stat(absRepo); os.IsNotExist(statErr) {
+			if _, sysStatErr := os.Stat(sysPath); sysStatErr == nil {
+				_ = dotfile.Backup(entry)
+			}
+		}
+
+		// 2. If user requested to overwrite system config with symlink:
+		if createSymlinks {
+			backedUp, _, err := dotfile.Setup(entry, backupDir)
+			if err == nil {
+				symlinkCount++
+				if backedUp {
+					backupCount++
+				}
+			}
+		}
+	}
+
+	_ = config.Save(m.cfg)
+
+	m.mode = modeSuccess
+	m.addedCount = len(m.pendingSpecs)
+	m.symlinkedCount = symlinkCount
+	m.backedUpCount = backupCount
+	m.backupDir = backupDir
+	m.symlinkCreated = createSymlinks
 }
 
 func (m *AddConfigModel) updateFormFocus() {
@@ -433,15 +510,67 @@ func (m AddConfigModel) View() string {
 		)
 		statusHint = "tab/↑↓ navigate fields • space toggle method • enter save • esc back • q quit"
 
+	case modePromptSymlink:
+		title := indent + lipgloss.NewStyle().
+			Bold(true).
+			Foreground(theme.Accent).
+			Render("Overwrite original config(s) with symlinks?")
+
+		var list []string
+		repoRoot := ""
+		if m.cfg != nil {
+			repoRoot = m.cfg.RepoPath
+		}
+		for _, s := range m.pendingSpecs {
+			list = append(list, fmt.Sprintf("• %s (%s -> %s)", s.Name, s.SystemPath, filepath.Join(repoRoot, s.RepoPath)))
+		}
+
+		promptBody := []string{
+			"Would you like to replace the original system config files with symlinks",
+			"pointing directly to your dotfiles repository?",
+			"",
+			"A backup of existing files will be created automatically before linking.",
+			"",
+			strings.Join(list, "\n"+indent),
+			"",
+			lipgloss.NewStyle().Foreground(theme.Success).Bold(true).Render("[y] Yes, backup & create symlinks") +
+				"   " + lipgloss.NewStyle().Foreground(theme.Muted).Render("[n] No, keep original files") +
+				"   " + lipgloss.NewStyle().Foreground(theme.Muted).Render("[esc] Cancel"),
+		}
+
+		desc := indent + lipgloss.NewStyle().
+			Foreground(theme.Text).
+			Render(strings.Join(promptBody, "\n"+indent))
+
+		content = lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			"",
+			desc,
+		)
+		statusHint = "y symlink & backup • n keep files • esc cancel • q quit"
+
 	case modeSuccess:
 		title := indent + lipgloss.NewStyle().
 			Bold(true).
 			Foreground(theme.Success).
 			Render(theme.IconInSync + " Configuration Added Successfully!")
 
+		var details []string
+		details = append(details, fmt.Sprintf("• Added %d configuration(s) to dotfiles repository", m.addedCount))
+		if m.symlinkCreated {
+			details = append(details, fmt.Sprintf("• Created %d symlink(s) pointing to repository", m.symlinkedCount))
+			if m.backedUpCount > 0 {
+				details = append(details, fmt.Sprintf("• Backed up %d existing file(s) to %s", m.backedUpCount, m.backupDir))
+			}
+		} else {
+			details = append(details, "• Original system configs were kept as-is (symlinks not created)")
+			details = append(details, "  You can link them anytime from the Setup menu.")
+		}
+
 		desc := indent + lipgloss.NewStyle().
 			Foreground(theme.Text).
-			Render(m.successMsg) + "\n\n" +
+			Render(strings.Join(details, "\n"+indent)) + "\n\n" +
 			indent + lipgloss.NewStyle().Foreground(theme.Muted).Render("Configuration saved to ~/.config/dots/config.toml")
 
 		content = lipgloss.JoinVertical(

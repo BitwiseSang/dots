@@ -73,3 +73,59 @@ func TestAddConfigModel(t *testing.T) {
 		t.Errorf("expected view height to be 24, got %d", lipgloss.Height(v))
 	}
 }
+
+func TestAddConfigModelSymlinkPromptAndAction(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	repoDir := filepath.Join(tmpDir, "repo")
+	_ = os.MkdirAll(repoDir, 0755)
+
+	sysFile := filepath.Join(tmpDir, "dummy_config.toml")
+	_ = os.WriteFile(sysFile, []byte("content=1"), 0644)
+
+	cfg := &config.Config{
+		Editor:   "nvim",
+		RepoPath: repoDir,
+	}
+
+	m := NewAddConfigModel(cfg)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// Use manual mode
+	m.PreFill(sysFile)
+
+	// Press Enter to submit manual form
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Must transition to modePromptSymlink
+	if m.mode != modePromptSymlink {
+		t.Fatalf("expected modePromptSymlink, got %v", m.mode)
+	}
+	if m.IsTyping() {
+		t.Errorf("expected IsTyping to be false in modePromptSymlink")
+	}
+
+	v := m.View()
+	if !strings.Contains(v, "Overwrite original config(s) with symlinks?") {
+		t.Errorf("expected prompt in view, got: %s", v)
+	}
+
+	// Press 'y' to confirm symlink creation
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+
+	if m.mode != modeSuccess {
+		t.Fatalf("expected modeSuccess after confirming, got %v", m.mode)
+	}
+	if !m.symlinkCreated {
+		t.Errorf("expected symlinkCreated to be true")
+	}
+
+	// Verify that dummy_config.toml is now a symlink pointing to repoDir/dummy_config!
+	fi, err := os.Lstat(sysFile)
+	if err != nil {
+		t.Fatalf("failed to stat sysFile: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("expected sysFile to be replaced with a symlink")
+	}
+}

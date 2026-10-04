@@ -120,3 +120,65 @@ func TestWizardModelCloningStep(t *testing.T) {
 		t.Errorf("expected view height to be 24 on clone error, got %d", lipgloss.Height(vErr))
 	}
 }
+
+func TestWizardModelFinalizeRegistersAllAndLinksSelected(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	tmpRepo := filepath.Join(tmpDir, "repo")
+	_ = os.MkdirAll(tmpRepo, 0755)
+	_ = os.Mkdir(filepath.Join(tmpRepo, "nvim"), 0755)
+	_ = os.Mkdir(filepath.Join(tmpRepo, "fish"), 0755)
+	_ = os.WriteFile(filepath.Join(tmpRepo, "tmux.conf"), []byte("test"), 0644)
+
+	cfg := &config.Config{
+		Editor:   "nvim",
+		RepoPath: tmpRepo,
+	}
+
+	m := NewWizardModel(cfg)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.repoInput.SetValue(tmpRepo)
+
+	// Step 1 -> Step 2
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Step 2 -> Step 3
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Step 3 -> Step 4
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.step != wizardStepDiscover {
+		t.Fatalf("expected step to be wizardStepDiscover")
+	}
+
+	// In Step 4, unselect all, then select only item 0
+	for i := range m.selector.Items {
+		m.selector.Items[i].Selected = false
+	}
+	m.selector.Items[0].Selected = true
+	selectedName := m.selector.Items[0].Name
+
+	// Press Enter to finalize
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.step != wizardStepComplete {
+		t.Fatalf("expected step to be wizardStepComplete, got %v", m.step)
+	}
+
+	// Verify all 3 repo configs are registered in cfg.Dotfiles!
+	if len(cfg.Dotfiles) != 3 {
+		t.Fatalf("expected all 3 repo configs to be registered, got %d", len(cfg.Dotfiles))
+	}
+
+	// Verify only 1 config was linked
+	if m.linkedCount != 1 {
+		t.Errorf("expected 1 linked config, got %d", m.linkedCount)
+	}
+
+	v := m.View()
+	if !strings.Contains(v, "Managing 3 total configuration(s)") {
+		t.Errorf("expected view to state managing 3 configs, got: %s", v)
+	}
+	if !strings.Contains(v, "Successfully linked: 1") {
+		t.Errorf("expected view to state 1 linked, got: %s", v)
+	}
+	_ = selectedName
+}

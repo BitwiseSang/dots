@@ -51,6 +51,9 @@ type WizardModel struct {
 	foundRepoCfg   bool
 	spinner        spinner.Model
 	err            error
+	linkedCount    int
+	backedUpCount  int
+	backupDir      string
 	width          int
 	height         int
 	animStep       int
@@ -365,14 +368,15 @@ func (m WizardModel) loadRepoAndAdvance(repoPath string) (WizardModel, tea.Cmd) 
 }
 
 func (m WizardModel) finalizeSetup() (WizardModel, tea.Cmd) {
-	val := strings.TrimSpace(m.repoInput.Value())
-	if val == "" {
-		val = "~/dotfiles"
+	repoLocal := m.resolvedLocal
+	if repoLocal == "" {
+		_, _, repoLocal = git.ResolveRepoInput(m.repoInput.Value())
 	}
+	savedRepoPath := config.NormalizeRepoPath(repoLocal)
 
 	newCfg := &config.Config{
 		Editor:   m.editorOpts[m.editorIdx],
-		RepoPath: val,
+		RepoPath: savedRepoPath,
 		Git: config.GitConfig{
 			AutoCommit:   m.autoCommit,
 			AutoPush:     m.autoPush,
@@ -380,19 +384,17 @@ func (m WizardModel) finalizeSetup() (WizardModel, tea.Cmd) {
 		},
 	}
 
-	selected := m.selector.SelectedItems()
-	for _, item := range selected {
-		method := "copy"
-		if item.IsDir {
-			method = "rsync"
+	// Register all repository configurations into dots
+	newCfg.Dotfiles = append([]config.DotfileSpec(nil), m.repoSpecs...)
+
+	// Update any system paths if customized in the selector
+	for i, spec := range newCfg.Dotfiles {
+		for _, item := range m.selector.Items {
+			if strings.EqualFold(spec.Name, item.Name) {
+				newCfg.Dotfiles[i].SystemPath = item.Path
+				break
+			}
 		}
-		newCfg.Dotfiles = append(newCfg.Dotfiles, config.DotfileSpec{
-			Name:       item.Name,
-			SystemPath: item.Path,
-			RepoPath:   item.Name,
-			Method:     method,
-			IsDir:      item.IsDir,
-		})
 	}
 
 	if err := config.Save(newCfg); err != nil {
@@ -402,6 +404,31 @@ func (m WizardModel) finalizeSetup() (WizardModel, tea.Cmd) {
 	if m.cfg != nil {
 		*m.cfg = *newCfg
 	}
+
+	// Execute setup (symlink) on selected configurations
+	selected := m.selector.SelectedItems()
+	selectedMap := make(map[string]bool)
+	for _, item := range selected {
+		selectedMap[strings.ToLower(item.Name)] = true
+	}
+
+	var linkedCount, backedUpCount int
+	backupDir, _ := dotfile.CreateBackupDir()
+	for _, spec := range newCfg.Dotfiles {
+		if selectedMap[strings.ToLower(spec.Name)] {
+			entry := dotfile.NewEntry(spec, newCfg.RepoPath)
+			backedUp, _, err := dotfile.Setup(entry, backupDir)
+			if err == nil {
+				linkedCount++
+				if backedUp {
+					backedUpCount++
+				}
+			}
+		}
+	}
+	m.linkedCount = linkedCount
+	m.backedUpCount = backedUpCount
+	m.backupDir = backupDir
 
 	m.step = wizardStepComplete
 	return m, nil
@@ -569,9 +596,21 @@ func (m WizardModel) View() string {
 			Foreground(theme.Success).
 			Render(theme.IconInSync + " Setup Completed Successfully!") + "\n\n"
 
+		details := []string{
+			fmt.Sprintf("• Managing %d total configuration(s) from %s", len(m.cfg.Dotfiles), m.cfg.RepoPath),
+			fmt.Sprintf("• Successfully linked: %d configuration(s)", m.linkedCount),
+		}
+		if m.backedUpCount > 0 {
+			details = append(details, fmt.Sprintf("• Backed up %d existing file(s) to %s", m.backedUpCount, m.backupDir))
+		}
+		if unlinked := len(m.cfg.Dotfiles) - m.linkedCount; unlinked > 0 {
+			details = append(details, fmt.Sprintf("• %d unlinked configuration(s) can be enabled anytime from the Setup menu", unlinked))
+		}
+
 		desc := indent + lipgloss.NewStyle().
 			Foreground(theme.Text).
 			Render("Your dotfiles manager is fully configured and ready to use.") + "\n\n" +
+			indent + strings.Join(details, "\n"+indent) + "\n\n" +
 			indent + lipgloss.NewStyle().Foreground(theme.Muted).Render("Configuration saved to ~/.config/dots/config.toml")
 
 		content = lipgloss.JoinVertical(

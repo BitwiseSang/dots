@@ -67,6 +67,60 @@ func ExpandPath(path string) string {
 	return path
 }
 
+// CollapsePath replaces the user's home directory prefix with "~".
+func CollapsePath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	cleaned := filepath.Clean(path)
+	if cleaned == home {
+		return "~"
+	}
+	if strings.HasPrefix(cleaned, home+string(filepath.Separator)) {
+		return "~" + cleaned[len(home):]
+	}
+	return path
+}
+
+// IsRemoteRepoInput returns true if input looks like a git URL or GitHub shorthand.
+func IsRemoteRepoInput(input string) bool {
+	t := strings.TrimSpace(input)
+	if t == "" {
+		return false
+	}
+	if strings.HasPrefix(t, "https://") || strings.HasPrefix(t, "http://") ||
+		strings.HasPrefix(t, "git@") || strings.HasPrefix(t, "ssh://") {
+		return true
+	}
+	if !strings.HasPrefix(t, "~") && !strings.HasPrefix(t, "/") && !strings.HasPrefix(t, ".") {
+		parts := strings.Split(t, "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeRepoPath ensures repo path is a valid local path (e.g. ~/dotfiles),
+// resolving remote URLs or shorthand if accidentally saved.
+func NormalizeRepoPath(path string) string {
+	t := strings.TrimSpace(path)
+	if t == "" {
+		return "~/dotfiles"
+	}
+	if IsRemoteRepoInput(t) {
+		clean := strings.TrimSuffix(t, ".git")
+		parts := strings.Split(clean, "/")
+		base := parts[len(parts)-1]
+		if base == "" {
+			base = "dotfiles"
+		}
+		return filepath.Join("~", base)
+	}
+	return CollapsePath(t)
+}
+
 func Load() (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -89,11 +143,13 @@ func Load() (*Config, error) {
 	if len(cfg.Dotfiles) == 0 {
 		cfg.Dotfiles = DefaultDotfiles()
 	}
+	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
 
 	return &cfg, nil
 }
 
 func Save(cfg *Config) error {
+	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
 	if err := EnsureConfigDir(); err != nil {
 		return err
 	}

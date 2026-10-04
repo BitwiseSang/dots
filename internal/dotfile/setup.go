@@ -3,9 +3,32 @@ package dotfile
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 )
+
+// movePath renames src to dst, falling back to copy+delete across filesystems.
+func movePath(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	fi, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if fi.IsDir() {
+		cmd := exec.Command("cp", "-a", src, dst)
+		if err := cmd.Run(); err != nil {
+			return err
+		}
+		return os.RemoveAll(src)
+	}
+	if err := copyFile(src, dst); err != nil {
+		return err
+	}
+	return os.Remove(src)
+}
 
 type SetupResult struct {
 	Entry      Entry
@@ -57,7 +80,7 @@ func Setup(entry Entry, backupDir string) (bool, string, error) {
 				}
 			}
 			backupPath = filepath.Join(backupDir, filepath.Base(sysPath))
-			if err := os.Rename(sysPath, backupPath); err != nil {
+			if err := movePath(sysPath, backupPath); err != nil {
 				return false, "", fmt.Errorf("failed to backup existing file: %v", err)
 			}
 			backedUp = true
