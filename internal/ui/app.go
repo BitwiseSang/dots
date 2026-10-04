@@ -27,6 +27,7 @@ type AppModel struct {
 	backup      views.BackupModel
 	setup       views.SetupModel
 	edit        views.EditModel
+	browse      views.BrowseModel
 	cfg         *config.Config
 	entries     []dotfile.Entry
 	width       int
@@ -45,18 +46,13 @@ func NewApp(cfg *config.Config, initialView views.ViewType) AppModel {
 	// Harmonic spring for smooth damping transitions
 	spring := harmonica.NewSpring(harmonica.FPS(30), 6.0, 0.7)
 
-	editView := views.NewEditModel(entries, cfg)
-	if initialView == views.ViewBrowse {
-		_ = editView.SetMode(1) // Open directly in filepicker mode
-		initialView = views.ViewEdit
-	}
-
 	return AppModel{
 		currentView: initialView,
 		home:        views.NewHomeModel(cfg.RepoPath),
 		backup:      views.NewBackupModel(entries, cfg),
 		setup:       views.NewSetupModel(entries, cfg),
-		edit:        editView,
+		edit:        views.NewEditModel(entries, cfg),
+		browse:      views.NewBrowseModel(cfg),
 		cfg:         cfg,
 		entries:     entries,
 		spring:      spring,
@@ -72,6 +68,7 @@ func (m AppModel) Init() tea.Cmd {
 		m.backup.Init(),
 		m.setup.Init(),
 		m.edit.Init(),
+		m.browse.Init(),
 	)
 }
 
@@ -101,6 +98,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case views.ViewEdit:
 			m.edit, cmd = m.edit.Update(msg)
 			cmds = append(cmds, cmd)
+		case views.ViewBrowse:
+			m.browse, cmd = m.browse.Update(msg)
+			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
 
@@ -117,6 +117,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, childCmd)
 		m.edit, childCmd = m.edit.Update(msg)
 		cmds = append(cmds, childCmd)
+		m.browse, childCmd = m.browse.Update(msg)
+		cmds = append(cmds, childCmd)
 
 	case tea.KeyMsg:
 		// Universal quit with 'q' or Ctrl+C from ANY page/view
@@ -127,13 +129,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case views.NavigateMsg:
 		var initCmd tea.Cmd
+		m.currentView = msg.View
 		if msg.View == views.ViewBrowse {
-			initCmd = m.edit.SetMode(1) // switch to filepicker in edit view and trigger m.fp.Init()
-			m.currentView = views.ViewEdit
-		} else {
-			m.currentView = msg.View
-		}
-		if msg.View == views.ViewBackup {
+			if msg.Path != "" {
+				initCmd = m.browse.SetDirectory(msg.Path)
+			} else {
+				initCmd = m.browse.Refresh()
+			}
+		} else if msg.View == views.ViewBackup {
 			m.backup.Reset(m.entries)
 		} else if msg.View == views.ViewSetup {
 			m.setup.Reset(m.entries)
@@ -154,14 +157,19 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.backup = views.NewBackupModel(m.entries, m.cfg)
 		m.setup = views.NewSetupModel(m.entries, m.cfg)
 		m.edit = views.NewEditModel(m.entries, m.cfg)
+		// Note: m.browse is preserved so directory traversal position is retained!
 
 		sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
 		m.home, _ = m.home.Update(sizeMsg)
 		m.backup, _ = m.backup.Update(sizeMsg)
 		m.setup, _ = m.setup.Update(sizeMsg)
 		m.edit, _ = m.edit.Update(sizeMsg)
+		m.browse, _ = m.browse.Update(sizeMsg)
 
-		return m, m.edit.Init()
+		if m.currentView == views.ViewBrowse {
+			return m, m.browse.Refresh()
+		}
+		return m, nil
 	}
 
 	switch m.currentView {
@@ -176,6 +184,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	case views.ViewEdit:
 		m.edit, cmd = m.edit.Update(msg)
+		cmds = append(cmds, cmd)
+	case views.ViewBrowse:
+		m.browse, cmd = m.browse.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -196,6 +207,8 @@ func (m AppModel) View() string {
 		return m.setup.View()
 	case views.ViewEdit:
 		return m.edit.View()
+	case views.ViewBrowse:
+		return m.browse.View()
 	default:
 		return m.home.View()
 	}

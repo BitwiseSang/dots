@@ -51,9 +51,23 @@ func StatusBar(context, hint string, width int) string {
 
 	ctxBadge := ""
 	if context != "" {
+		ctxColor := theme.Secondary
+		switch context {
+		case "Home":
+			ctxColor = theme.Primary
+		case "Backup":
+			ctxColor = theme.Secondary
+		case "Setup":
+			ctxColor = lipgloss.Color("#A855F7")
+		case "Edit":
+			ctxColor = theme.Pink
+		case "Browse":
+			ctxColor = theme.Secondary
+		}
+
 		ctxBadge = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(theme.Secondary).
+			Foreground(ctxColor).
 			Render(context) + " " + lipgloss.NewStyle().Foreground(theme.Muted).Render("•") + " "
 	}
 

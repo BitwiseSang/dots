@@ -324,7 +324,7 @@ func (m SetupModel) View() string {
 	}
 
 	contentHeight := lipgloss.Height(content) + lipgloss.Height(header)
-	padHeight := m.height - contentHeight - 3
+	padHeight := m.height - contentHeight - 1
 	if padHeight < 0 {
 		padHeight = 0
 	}

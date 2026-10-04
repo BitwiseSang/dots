@@ -21,6 +21,7 @@ const (
 
 type NavigateMsg struct {
 	View ViewType
+	Path string
 }
 
 type TickMsg struct{}
@@ -111,40 +112,43 @@ func (m HomeModel) View() string {
 	for i, item := range m.items {
 		isSelected := i == m.cursor
 
+		// Unified color on selection: theme.Primary (#8B5CF6)
+		activeColor := theme.Primary
+
 		// Cursor indicator - fixed width 3
 		cursorStyle := lipgloss.NewStyle().Width(3)
 		cursorStr := cursorStyle.Render(" ")
 		if isSelected {
-			cursorStr = cursorStyle.Foreground(theme.Secondary).Bold(true).Render(theme.IconCursor + " ")
+			cursorStr = cursorStyle.Foreground(activeColor).Bold(true).Render(theme.IconCursor + " ")
 		}
 
 		// Hotkey badge: [b] - fixed width 4
 		keyStyle := lipgloss.NewStyle().Width(4)
 		keyBadge := keyStyle.Foreground(theme.Muted).Render("[" + item.key + "] ")
 		if isSelected {
-			keyBadge = keyStyle.Foreground(theme.Accent).Bold(true).Render("[" + item.key + "] ")
+			keyBadge = keyStyle.Foreground(activeColor).Bold(true).Render("[" + item.key + "] ")
 		}
 
 		// Icon - fixed width 3
-		iconColor := theme.Secondary
+		iconColor := theme.Muted
 		if isSelected {
-			iconColor = theme.Pink
+			iconColor = activeColor
 		}
 		iconStr := lipgloss.NewStyle().Width(3).Foreground(iconColor).Bold(true).Render(item.icon + " ")
 
 		// Title - fixed width 12
 		titleStyle := lipgloss.NewStyle().Bold(true).Width(12)
 		if isSelected {
-			titleStyle = titleStyle.Foreground(theme.Primary)
+			titleStyle = titleStyle.Foreground(activeColor)
 		} else {
 			titleStyle = titleStyle.Foreground(theme.Text)
 		}
 		titleStr := titleStyle.Render(item.title)
 
-		// Description
+		// Description - matching cohesive active color on select
 		descStyle := lipgloss.NewStyle().Foreground(theme.Muted)
 		if isSelected {
-			descStyle = descStyle.Foreground(theme.Subtle)
+			descStyle = descStyle.Foreground(activeColor)
 		}
 		descStr := descStyle.Render(item.desc)
 
@@ -171,7 +175,7 @@ func (m HomeModel) View() string {
 	content := lipgloss.JoinVertical(lipgloss.Left, header, "", menu)
 
 	contentHeight := lipgloss.Height(content)
-	padHeight := m.height - contentHeight - 3
+	padHeight := m.height - contentHeight - 1
 	if padHeight < 0 {
 		padHeight = 0
 	}

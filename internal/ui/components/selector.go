@@ -93,19 +93,25 @@ func (s Selector) View() string {
 			cursorStr = cursorStyle.Foreground(s.ActiveColor).Bold(true).Render(theme.IconCursor + " ")
 		}
 
-		// Checkbox - fixed width 4
+		// Checkbox - fixed width 4. When highlighted by cursor, brackets match ActiveColor
 		checkboxStyle := lipgloss.NewStyle().Width(4)
-		checkboxStr := checkboxStyle.Foreground(theme.Muted).Render("[ ] ")
-		if item.Selected {
-			checkboxStr = checkboxStyle.Foreground(s.CheckColor).Bold(true).Render("[" + theme.IconInSync + "] ")
+		var checkboxStr string
+		if isCursor {
+			if item.Selected {
+				checkboxStr = checkboxStyle.Foreground(s.ActiveColor).Bold(true).Render("[" + theme.IconInSync + "] ")
+			} else {
+				checkboxStr = checkboxStyle.Foreground(s.ActiveColor).Render("[ ] ")
+			}
+		} else {
+			if item.Selected {
+				checkboxStr = checkboxStyle.Foreground(s.CheckColor).Bold(true).Render("[" + theme.IconInSync + "] ")
+			} else {
+				checkboxStr = checkboxStyle.Foreground(theme.Muted).Render("[ ] ")
+			}
 		}
 
-		// Icon - fixed width 3
-		iconStyle := lipgloss.NewStyle().Width(3).Foreground(theme.Secondary)
-		iconStr := iconStyle.Render(theme.FileIcon(item.Name, item.IsDir))
-
-		// Item Name - fixed width 16
-		nameStyle := lipgloss.NewStyle().Width(16)
+		// Item Name - fixed width 18
+		nameStyle := lipgloss.NewStyle().Width(18)
 		if isCursor {
 			nameStyle = nameStyle.Foreground(s.ActiveColor).Bold(true)
 		} else if item.Selected {
@@ -145,7 +151,6 @@ func (s Selector) View() string {
 			lipgloss.Left,
 			cursorStr,
 			checkboxStr,
-			iconStr,
 			nameStr,
 			" ",
 			statusDesc,
