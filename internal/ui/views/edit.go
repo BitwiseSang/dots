@@ -1,6 +1,7 @@
 package views
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/BitwiseSang/dots/internal/config"
@@ -8,6 +9,7 @@ import (
 	"github.com/BitwiseSang/dots/internal/editor"
 	"github.com/BitwiseSang/dots/internal/ui/components"
 	"github.com/BitwiseSang/dots/internal/ui/theme"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -18,20 +20,66 @@ type OpenEditorMsg struct {
 }
 
 type EditModel struct {
-	entries  []dotfile.Entry
-	cfg      *config.Config
-	cursor   int
-	width    int
-	height   int
-	animStep int
+	entries         []dotfile.Entry
+	cfg             *config.Config
+	cursor          int
+	width           int
+	height          int
+	animStep        int
+	searchInput     textinput.Model
+	filtering       bool
+	filterQuery     string
+	filteredIndices []int
 }
 
 func NewEditModel(entries []dotfile.Entry, cfg *config.Config) EditModel {
+	ti := textinput.New()
+	ti.Prompt = "/ "
+	ti.Placeholder = "type to filter..."
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(theme.Pink).Bold(true)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.Muted)
+	ti.CharLimit = 32
+
+	indices := make([]int, len(entries))
+	for i := range entries {
+		indices[i] = i
+	}
+
 	return EditModel{
-		entries:  entries,
-		cfg:      cfg,
-		cursor:   0,
-		animStep: 0,
+		entries:         entries,
+		cfg:             cfg,
+		cursor:          0,
+		animStep:        0,
+		searchInput:     ti,
+		filtering:       false,
+		filterQuery:     "",
+		filteredIndices: indices,
+	}
+}
+
+func (m *EditModel) recomputeFiltered() {
+	if m.filterQuery == "" {
+		m.filteredIndices = make([]int, len(m.entries))
+		for i := range m.entries {
+			m.filteredIndices[i] = i
+		}
+	} else {
+		m.filteredIndices = nil
+		q := strings.ToLower(m.filterQuery)
+		for i, e := range m.entries {
+			if strings.Contains(strings.ToLower(e.Name), q) ||
+				strings.Contains(strings.ToLower(e.EditPath()), q) ||
+				strings.Contains(strings.ToLower(e.SystemPath), q) {
+				m.filteredIndices = append(m.filteredIndices, i)
+			}
+		}
+	}
+	if m.cursor >= len(m.filteredIndices) {
+		m.cursor = 0
+	}
+	if m.cursor < 0 && len(m.filteredIndices) > 0 {
+		m.cursor = 0
 	}
 }
 
@@ -50,13 +98,60 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		if m.filtering {
+			switch msg.String() {
+			case "esc":
+				if m.searchInput.Value() != "" {
+					m.searchInput.SetValue("")
+					m.filterQuery = ""
+					m.recomputeFiltered()
+				}
+				m.filtering = false
+				m.searchInput.Blur()
+				return m, nil
+			case "enter":
+				m.filtering = false
+				m.searchInput.Blur()
+				return m, nil
+			case "up":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+				return m, nil
+			case "down":
+				if m.cursor < len(m.filteredIndices)-1 {
+					m.cursor++
+				}
+				return m, nil
+			}
+
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			if m.searchInput.Value() != m.filterQuery {
+				m.filterQuery = m.searchInput.Value()
+				m.recomputeFiltered()
+			}
+			return m, cmd
+		}
+
 		switch msg.String() {
+		case "/":
+			m.filtering = true
+			m.searchInput.Focus()
+			return m, textinput.Blink
+
 		case "esc":
+			if m.filterQuery != "" {
+				m.filterQuery = ""
+				m.searchInput.SetValue("")
+				m.recomputeFiltered()
+				return m, nil
+			}
 			return m, func() tea.Msg {
 				return NavigateMsg{View: ViewHome}
 			}
 
-		case "tab", "f":
+		case "tab":
 			return m, func() tea.Msg {
 				return NavigateMsg{View: ViewBrowse}
 			}
@@ -66,14 +161,14 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 				m.cursor--
 			}
 		case "down", "j":
-			if m.cursor < len(m.entries)-1 {
+			if m.cursor < len(m.filteredIndices)-1 {
 				m.cursor++
 			}
 		case "enter":
-			if len(m.entries) > 0 {
-				entry := m.entries[m.cursor]
+			if len(m.filteredIndices) > 0 {
+				actualIdx := m.filteredIndices[m.cursor]
+				entry := m.entries[actualIdx]
 				if entry.IsDir {
-					// Directory config -> transition to Browse rooted at that directory
 					return m, func() tea.Msg {
 						return NavigateMsg{View: ViewBrowse, Path: entry.EditPath()}
 					}
@@ -85,8 +180,9 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 				}
 			}
 		case "o", "O":
-			if len(m.entries) > 0 {
-				entry := m.entries[m.cursor]
+			if len(m.filteredIndices) > 0 {
+				actualIdx := m.filteredIndices[m.cursor]
+				entry := m.entries[actualIdx]
 				path := entry.EditPath()
 				ed := editor.Resolve(m.cfg.Editor)
 				return m, func() tea.Msg {
@@ -121,42 +217,52 @@ func (m EditModel) View() string {
 		Render("Select configurations to open in your editor:")
 	contentBuilder.WriteString(title + "\n\n")
 
-	for i, entry := range m.entries {
-		isSelected := i == m.cursor
+	if m.filtering || m.filterQuery != "" {
+		countBadge := fmt.Sprintf("(%d/%d)", len(m.filteredIndices), len(m.entries))
+		badgeStyle := lipgloss.NewStyle().Foreground(theme.Muted).Render(countBadge)
+		contentBuilder.WriteString(indent + m.searchInput.View() + " " + badgeStyle + "\n\n")
+	}
 
-		// Unified Pink active color when selected
-		activeColor := theme.Pink
+	if len(m.filteredIndices) == 0 {
+		contentBuilder.WriteString(indent + theme.MutedStyle.Render("No matching configurations found.\n"))
+	} else {
+		for i, actualIdx := range m.filteredIndices {
+			entry := m.entries[actualIdx]
+			isSelected := i == m.cursor
 
-		cursorStyle := lipgloss.NewStyle().Width(3)
-		cursorStr := cursorStyle.Render(" ")
-		if isSelected {
-			cursorStr = cursorStyle.Foreground(activeColor).Bold(true).Render(theme.IconCursor + " ")
-		}
+			activeColor := theme.Pink
 
-		nameStyle := lipgloss.NewStyle().Width(18)
-		if isSelected {
-			nameStyle = nameStyle.Foreground(activeColor).Bold(true)
-		} else {
-			nameStyle = nameStyle.Foreground(theme.Text)
-		}
-		nameStr := nameStyle.Render(entry.Name)
+			cursorStyle := lipgloss.NewStyle().Width(3)
+			cursorStr := cursorStyle.Render(" ")
+			if isSelected {
+				cursorStr = cursorStyle.Foreground(activeColor).Bold(true).Render(theme.IconCursor + " ")
+			}
 
-		pathStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-		if isSelected {
-			pathStyle = pathStyle.Foreground(theme.Subtle)
-		}
-		pathStr := pathStyle.Render(shortenHome(entry.EditPath()))
+			nameStyle := lipgloss.NewStyle().Width(18)
+			if isSelected {
+				nameStyle = nameStyle.Foreground(activeColor).Bold(true)
+			} else {
+				nameStyle = nameStyle.Foreground(theme.Text)
+			}
+			nameStr := nameStyle.Render(entry.Name)
 
-		row := indent + lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			cursorStr,
-			nameStr,
-			pathStr,
-		)
+			pathStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+			if isSelected {
+				pathStyle = pathStyle.Foreground(theme.Subtle)
+			}
+			pathStr := pathStyle.Render(shortenHome(entry.EditPath()))
 
-		contentBuilder.WriteString(row)
-		if i < len(m.entries)-1 {
-			contentBuilder.WriteString("\n")
+			row := indent + lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				cursorStr,
+				nameStr,
+				pathStr,
+			)
+
+			contentBuilder.WriteString(row)
+			if i < len(m.filteredIndices)-1 {
+				contentBuilder.WriteString("\n")
+			}
 		}
 	}
 
@@ -164,7 +270,16 @@ func (m EditModel) View() string {
 		PaddingTop(1).
 		Render(contentBuilder.String())
 
-	statusBar := components.StatusBar("Edit", "enter open • tab browse • esc home • q quit", m.width)
+	var statusHint string
+	if m.filtering {
+		statusHint = "type to filter • enter done • esc clear • ↑/↓ move"
+	} else if m.filterQuery != "" {
+		statusHint = "enter open • / search • esc clear • tab browse • q quit"
+	} else {
+		statusHint = "enter open • / search • tab browse • esc home • q quit"
+	}
+
+	statusBar := components.StatusBar("Edit", statusHint, m.width)
 	topBlock := lipgloss.JoinVertical(lipgloss.Top, header, content)
 	return components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
 }

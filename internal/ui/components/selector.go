@@ -1,9 +1,11 @@
 package components
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/BitwiseSang/dots/internal/ui/theme"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -18,22 +20,68 @@ type SelectorItem struct {
 }
 
 type Selector struct {
-	Items       []SelectorItem
-	cursor      int
-	focused     bool
-	width       int
-	height      int
-	ActiveColor lipgloss.Color
-	CheckColor  lipgloss.Color
+	Items           []SelectorItem
+	cursor          int
+	focused         bool
+	width           int
+	height          int
+	ActiveColor     lipgloss.Color
+	CheckColor      lipgloss.Color
+	searchInput     textinput.Model
+	filtering       bool
+	filterQuery     string
+	filteredIndices []int
 }
 
 func NewSelector(items []SelectorItem) Selector {
+	ti := textinput.New()
+	ti.Prompt = "/ "
+	ti.Placeholder = "type to filter..."
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.Muted)
+	ti.CharLimit = 32
+
+	indices := make([]int, len(items))
+	for i := range items {
+		indices[i] = i
+	}
+
 	return Selector{
-		Items:       items,
-		cursor:      0,
-		focused:     true,
-		ActiveColor: theme.Primary,
-		CheckColor:  theme.Success,
+		Items:           items,
+		cursor:          0,
+		focused:         true,
+		ActiveColor:     theme.Primary,
+		CheckColor:      theme.Success,
+		searchInput:     ti,
+		filtering:       false,
+		filterQuery:     "",
+		filteredIndices: indices,
+	}
+}
+
+func (s *Selector) recomputeFiltered() {
+	if s.filterQuery == "" {
+		s.filteredIndices = make([]int, len(s.Items))
+		for i := range s.Items {
+			s.filteredIndices[i] = i
+		}
+	} else {
+		s.filteredIndices = nil
+		q := strings.ToLower(s.filterQuery)
+		for i, it := range s.Items {
+			if strings.Contains(strings.ToLower(it.Name), q) ||
+				strings.Contains(strings.ToLower(it.Path), q) ||
+				strings.Contains(strings.ToLower(it.Desc), q) {
+				s.filteredIndices = append(s.filteredIndices, i)
+			}
+		}
+	}
+	if s.cursor >= len(s.filteredIndices) {
+		s.cursor = 0
+	}
+	if s.cursor < 0 && len(s.filteredIndices) > 0 {
+		s.cursor = 0
 	}
 }
 
@@ -46,31 +94,90 @@ func (s Selector) Update(msg tea.Msg) (Selector, tea.Cmd) {
 		return s, nil
 	}
 
+	if s.filtering {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "esc":
+				if s.searchInput.Value() != "" {
+					s.searchInput.SetValue("")
+					s.filterQuery = ""
+					s.recomputeFiltered()
+				}
+				s.filtering = false
+				s.searchInput.Blur()
+				return s, nil
+			case "enter":
+				s.filtering = false
+				s.searchInput.Blur()
+				return s, nil
+			case "tab":
+				if len(s.filteredIndices) > 0 {
+					actualIdx := s.filteredIndices[s.cursor]
+					s.Items[actualIdx].Selected = !s.Items[actualIdx].Selected
+				}
+				return s, nil
+			case "up":
+				if s.cursor > 0 {
+					s.cursor--
+				}
+				return s, nil
+			case "down":
+				if s.cursor < len(s.filteredIndices)-1 {
+					s.cursor++
+				}
+				return s, nil
+			}
+		}
+
+		var cmd tea.Cmd
+		s.searchInput, cmd = s.searchInput.Update(msg)
+		if s.searchInput.Value() != s.filterQuery {
+			s.filterQuery = s.searchInput.Value()
+			s.recomputeFiltered()
+		}
+		return s, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "/":
+			s.filtering = true
+			s.searchInput.Focus()
+			return s, textinput.Blink
+		case "esc":
+			if s.filterQuery != "" {
+				s.filterQuery = ""
+				s.searchInput.SetValue("")
+				s.recomputeFiltered()
+				return s, nil
+			}
 		case "up", "k":
 			if s.cursor > 0 {
 				s.cursor--
 			}
 		case "down", "j":
-			if s.cursor < len(s.Items)-1 {
+			if s.cursor < len(s.filteredIndices)-1 {
 				s.cursor++
 			}
 		case " ":
-			if len(s.Items) > 0 {
-				s.Items[s.cursor].Selected = !s.Items[s.cursor].Selected
+			if len(s.filteredIndices) > 0 {
+				actualIdx := s.filteredIndices[s.cursor]
+				s.Items[actualIdx].Selected = !s.Items[actualIdx].Selected
 			}
 		case "a":
-			allSelected := true
-			for _, item := range s.Items {
-				if !item.Selected {
-					allSelected = false
-					break
+			if len(s.filteredIndices) > 0 {
+				allSelected := true
+				for _, idx := range s.filteredIndices {
+					if !s.Items[idx].Selected {
+						allSelected = false
+						break
+					}
 				}
-			}
-			for i := range s.Items {
-				s.Items[i].Selected = !allSelected
+				for _, idx := range s.filteredIndices {
+					s.Items[idx].Selected = !allSelected
+				}
 			}
 		}
 	}
@@ -83,7 +190,20 @@ func (s Selector) View() string {
 	}
 
 	var b strings.Builder
-	for i, item := range s.Items {
+
+	if s.filtering || s.filterQuery != "" {
+		countBadge := fmt.Sprintf("(%d/%d)", len(s.filteredIndices), len(s.Items))
+		badgeStyle := lipgloss.NewStyle().Foreground(theme.Muted).Render(countBadge)
+		b.WriteString("   " + s.searchInput.View() + " " + badgeStyle + "\n\n")
+	}
+
+	if len(s.filteredIndices) == 0 {
+		b.WriteString(theme.MutedStyle.Render("   No matching configurations found."))
+		return b.String()
+	}
+
+	for i, actualIdx := range s.filteredIndices {
+		item := s.Items[actualIdx]
 		isCursor := i == s.cursor
 
 		// Cursor pointer - fixed width 3
@@ -159,7 +279,7 @@ func (s Selector) View() string {
 		)
 
 		b.WriteString(line)
-		if i < len(s.Items)-1 {
+		if i < len(s.filteredIndices)-1 {
 			b.WriteString("\n")
 		}
 	}
@@ -202,4 +322,24 @@ func (s *Selector) Blur() {
 
 func (s Selector) CursorIndex() int {
 	return s.cursor
+}
+
+func (s Selector) IsFiltering() bool {
+	return s.filtering
+}
+
+func (s Selector) HasFilter() bool {
+	return s.filterQuery != ""
+}
+
+func (s *Selector) ClearFilter() {
+	s.filterQuery = ""
+	s.searchInput.SetValue("")
+	s.filtering = false
+	s.searchInput.Blur()
+	s.recomputeFiltered()
+}
+
+func (s Selector) FilterQuery() string {
+	return s.filterQuery
 }

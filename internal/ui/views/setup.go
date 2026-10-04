@@ -141,8 +141,16 @@ func (m SetupModel) Update(msg tea.Msg) (SetupModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch m.phase {
 		case setupPhaseSelect:
+			if m.selector.IsFiltering() {
+				m.selector, cmd = m.selector.Update(msg)
+				return m, cmd
+			}
 			switch msg.String() {
 			case "esc":
+				if m.selector.HasFilter() {
+					m.selector.ClearFilter()
+					return m, nil
+				}
 				return m, func() tea.Msg {
 					return NavigateMsg{View: ViewHome}
 				}
@@ -271,7 +279,13 @@ func (m SetupModel) View() string {
 			"",
 			strings.Join(indentedSel, "\n"),
 		)
-		statusHint = "space toggle • a toggle all • enter preview symlinks • esc back • q quit"
+		if m.selector.IsFiltering() {
+			statusHint = "tab toggle • enter done • esc clear • ↑/↓ move"
+		} else if m.selector.HasFilter() {
+			statusHint = "space toggle • / search • esc clear • enter preview • q quit"
+		} else {
+			statusHint = "space toggle • a all • / search • enter preview • esc home • q quit"
+		}
 
 	case setupPhasePreview:
 		previewLines := strings.Split(m.vp.View(), "\n")

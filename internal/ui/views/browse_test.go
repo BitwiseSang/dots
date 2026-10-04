@@ -2,12 +2,11 @@ package views
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/BitwiseSang/dots/internal/config"
-	"github.com/BitwiseSang/dots/internal/ui/components"
-	"github.com/BitwiseSang/dots/internal/ui/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -20,63 +19,87 @@ func TestBrowseModelExactHeight(t *testing.T) {
 
 	for _, h := range []int{20, 24, 28, 30, 40} {
 		m := NewBrowseModel(cfg)
-		m.fp.Styles.FileSize = lipgloss.NewStyle().Width(9).Align(lipgloss.Right).Foreground(theme.Subtle)
 		dir, _ := os.UserHomeDir()
-		m.fp.CurrentDirectory = dir
+		m.SetDirectory(dir)
 
 		// Send WindowSizeMsg
 		m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: h})
-		cmd := m.fp.Init()
-		if cmd != nil {
-			msg := cmd()
-			m.fp, _ = m.fp.Update(msg)
-		}
 
-		repoPath := cfg.RepoPath
-		header := components.Header(m.width, m.height, m.animStep, repoPath)
-
-		blockWidth := 66
-		padLeft := (m.width - blockWidth) / 2
-		if padLeft < 2 {
-			padLeft = 2
-		}
-		indent := strings.Repeat(" ", padLeft)
-
-		title := indent + lipgloss.NewStyle().
-			Bold(true).
-			Foreground(theme.Secondary).
-			Render("Browse filesystem to open configurations:")
-
-		currentDirBadge := indent + lipgloss.NewStyle().
-			Foreground(theme.Secondary).
-			Bold(true).
-			Render(theme.IconDirModern + "  " + shortenHome(m.fp.CurrentDirectory))
-
-		rawFpLines := strings.Split(strings.TrimRight(m.fp.View(), "\n"), "\n")
-		var indentedFp []string
-		for _, l := range rawFpLines {
-			indentedFp = append(indentedFp, indent+l)
-		}
-
-		content := lipgloss.JoinVertical(
-			lipgloss.Left,
-			title,
-			"",
-			currentDirBadge,
-			"",
-			strings.Join(indentedFp, "\n"),
-		)
-
-		statusBar := components.StatusBar("Browse", "enter open • o nvim • h parent • tab edit • esc home • q quit", m.width)
-		topBlock := lipgloss.JoinVertical(lipgloss.Top, header, content)
-		fullView := components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
-
-		viewHeight := lipgloss.Height(fullView)
-		t.Logf("Height target: %d, actual: %d, headerHeight: %d, contentHeight: %d",
-			h, viewHeight, lipgloss.Height(header), lipgloss.Height(content))
+		view := m.View()
+		viewHeight := lipgloss.Height(view)
+		t.Logf("Height target: %d, actual: %d", h, viewHeight)
 
 		if viewHeight != h {
 			t.Errorf("For terminal height %d: expected view height %d, got %d", h, h, viewHeight)
 		}
+	}
+}
+
+func TestBrowseModelSearch(t *testing.T) {
+	cfg := &config.Config{
+		Editor:   "nvim",
+		RepoPath: "~/Documents/dotfiles",
+	}
+
+	tmpDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(tmpDir, "alacritty.toml"), []byte("test"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "kitty.conf"), []byte("test"), 0644)
+	_ = os.Mkdir(filepath.Join(tmpDir, "nvim"), 0755)
+
+	m := NewBrowseModel(cfg)
+	m.SetDirectory(tmpDir)
+
+	if len(m.items) != 3 {
+		t.Fatalf("expected 3 items in directory, got %d", len(m.items))
+	}
+
+	// Press '/' to search
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !m.filtering {
+		t.Fatalf("expected filtering mode to be active")
+	}
+
+	// Type 'nv'
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+
+	if len(m.filteredIndices) != 1 {
+		t.Fatalf("expected 1 match for 'nv', got %d", len(m.filteredIndices))
+	}
+	if m.items[m.filteredIndices[0]].name != "nvim" {
+		t.Errorf("expected 'nvim', got %s", m.items[m.filteredIndices[0]].name)
+	}
+
+	// Press Enter on nvim directory: should navigate into nvim/ and clear search!
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.currentDir != filepath.Join(tmpDir, "nvim") {
+		t.Errorf("expected currentDir to be nvim, got %s", m.currentDir)
+	}
+	if m.filtering {
+		t.Errorf("expected filtering to be false after drilling in")
+	}
+	if m.filterQuery != "" {
+		t.Errorf("expected filterQuery to be reset after drilling in")
+	}
+
+	// Press 'h' to navigate back to parent
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if m.currentDir != tmpDir {
+		t.Errorf("expected to return to tmpDir, got %s", m.currentDir)
+	}
+	if len(m.items) != 3 {
+		t.Fatalf("expected 3 items after returning to parent, got %d", len(m.items))
+	}
+
+	// Test search view rendering
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	v := m.View()
+	if !strings.Contains(v, "alacritty.toml") {
+		t.Errorf("expected search view to show matching alacritty.toml")
+	}
+	if lipgloss.Height(v) != 24 {
+		t.Errorf("expected view height to remain 24 during search, got %d", lipgloss.Height(v))
 	}
 }
