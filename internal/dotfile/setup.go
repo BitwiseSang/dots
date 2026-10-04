@@ -1,0 +1,83 @@
+package dotfile
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+type SetupResult struct {
+	Entry      Entry
+	Err        error
+	BackedUp   bool
+	BackupPath string
+}
+
+func CreateBackupDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	timestamp := time.Now().Format("20060102_150405")
+	backupDir := filepath.Join(home, fmt.Sprintf(".dotfile_backups_%s", timestamp))
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return "", err
+	}
+	return backupDir, nil
+}
+
+func Setup(entry Entry, backupDir string) (bool, string, error) {
+	sysPath := entry.ResolveSystemPath()
+	repoPath := entry.AbsRepoPath()
+
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		return false, "", fmt.Errorf("repository file missing: %s", repoPath)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(sysPath), 0755); err != nil {
+		return false, "", err
+	}
+
+	var backedUp bool
+	var backupPath string
+
+	if info, err := os.Lstat(sysPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, _ := os.Readlink(sysPath)
+			if filepath.Clean(target) == filepath.Clean(repoPath) {
+				return false, "", nil 
+			}
+			os.Remove(sysPath)
+		} else {
+			if backupDir == "" {
+				backupDir, err = CreateBackupDir()
+				if err != nil {
+					return false, "", fmt.Errorf("failed to create backup dir: %v", err)
+				}
+			}
+			backupPath = filepath.Join(backupDir, filepath.Base(sysPath))
+			if err := os.Rename(sysPath, backupPath); err != nil {
+				return false, "", fmt.Errorf("failed to backup existing file: %v", err)
+			}
+			backedUp = true
+		}
+	}
+
+	err := os.Symlink(repoPath, sysPath)
+	return backedUp, backupPath, err
+}
+
+func SetupAll(entries []Entry, backupDir string) []SetupResult {
+	var results []SetupResult
+	for _, entry := range entries {
+		backedUp, path, err := Setup(entry, backupDir)
+		results = append(results, SetupResult{
+			Entry:      entry,
+			Err:        err,
+			BackedUp:   backedUp,
+			BackupPath: path,
+		})
+	}
+	return results
+}
