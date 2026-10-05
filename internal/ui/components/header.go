@@ -61,7 +61,7 @@ func Header(width, height, step int, repoPath string) string {
 	brandStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary)
 	versionStyle := lipgloss.NewStyle().Foreground(theme.Subtle)
 
-	// Top bar: //// dots™                      v0.1.0 ///////////////////
+	// Top bar: //// dots™                      v1.0.0 ///////////////////
 	badgeLeft := " " + brandStyle.Render("dots™") + " "
 	badgeRight := " " + versionStyle.Render("v"+version.Version) + " "
 

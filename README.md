@@ -42,15 +42,38 @@ Gloss](https://github.com/charmbracelet/lipgloss).
 
 ## Installation
 
-### Using Make
+### 1. One-Line Shell Installer (Recommended)
+
+Install the latest pre-compiled binary on Linux or macOS without needing Go or build tools:
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/BitwiseSang/dots/main/install.sh | bash
+```
+
+### 2. Pre-Compiled Binaries & Packages (.deb / .rpm)
+
+Download standalone binaries, `.deb`, or `.rpm` packages for your platform from the [GitHub Releases](https://github.com/BitwiseSang/dots/releases) page.
+
+- **Linux (`amd64`, `arm64`)**: Standalone binary, Debian/Ubuntu (`.deb`), and Fedora/RHEL (`.rpm`)
+- **macOS (`Apple Silicon`, `Intel`)**: Standalone binary
+
+### 3. Using Go
+
+If you have Go installed on your machine:
+
+```bash
+go install github.com/BitwiseSang/dots/cmd/dots@latest
+```
+
+### 4. Build from Source
+
+```bash
+git clone https://github.com/BitwiseSang/dots.git
 cd dots
 make install
 ```
 
-This compiles the binary and copies it to `~/.local/bin/dots`. Ensure
-`~/.local/bin` is in your `$PATH`.
+This compiles the binary and installs it to `~/.local/bin/dots`. Ensure `~/.local/bin` is in your `$PATH`.
 
 ---
 

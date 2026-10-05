@@ -11,6 +11,6 @@ func TestVersionNotEmpty(t *testing.T) {
 	}
 	parts := strings.Split(Version, ".")
 	if len(parts) < 2 {
-		t.Fatalf("expected semantic version format (e.g. 0.1.0), got %s", Version)
+		t.Fatalf("expected semantic version format (e.g. 1.0.0), got %s", Version)
 	}
 }
