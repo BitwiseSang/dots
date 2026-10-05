@@ -86,6 +86,9 @@ func TestRefreshDatabase_NewFolderAndFile(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(repoDir, ".git"), 0755)
 	_ = os.MkdirAll(filepath.Join(repoDir, "dots"), 0755)
 
+	// Write .dotignore in repoDir to ignore setup.sh and backup.sh
+	_ = os.WriteFile(filepath.Join(repoDir, ".dotignore"), []byte("setup.sh\nbackup.sh\n"), 0644)
+
 	// cfg currently only has "nvim"
 	cfg := &config.Config{
 		Editor:   "nano",
@@ -134,6 +137,82 @@ func TestRefreshDatabase_NewFolderAndFile(t *testing.T) {
 	newlyAdded2, updated2 := RefreshDatabase(cfg)
 	if updated2 || len(newlyAdded2) != 0 {
 		t.Errorf("expected no changes on second run, got updated=%v, added=%+v", updated2, newlyAdded2)
+	}
+}
+
+func TestScanRepoSpecs_TopLevelDotfilesAndDotIgnore(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Top-level dotfiles (mapped to ~)
+	_ = os.WriteFile(filepath.Join(tmpDir, ".bashrc"), []byte("bash"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, ".zshrc"), []byte("zsh"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, ".tmux.conf"), []byte("tmux"), 0644)
+
+	// Non-dot top-level files (mapped to ~/.config)
+	_ = os.WriteFile(filepath.Join(tmpDir, "starship.toml"), []byte("starship"), 0644)
+
+	// Directories (mapped to ~/.config)
+	_ = os.Mkdir(filepath.Join(tmpDir, "nvim"), 0755)
+
+	// Default ignored files
+	_ = os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("readme"), 0644)
+	_ = os.Mkdir(filepath.Join(tmpDir, ".git"), 0755)
+
+	// Custom ignored via .dotignore
+	_ = os.WriteFile(filepath.Join(tmpDir, "ignore_me.txt"), []byte("skip"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, ".dotignore"), []byte("ignore_me.txt\n"), 0644)
+
+	specs, err := ScanRepoSpecs(tmpDir)
+	if err != nil {
+		t.Fatalf("ScanRepoSpecs failed: %v", err)
+	}
+
+	specMap := make(map[string]config.DotfileSpec)
+	for _, s := range specs {
+		specMap[s.RepoPath] = s
+	}
+
+	// Verify .bashrc -> ~/.bashrc
+	if bash, ok := specMap[".bashrc"]; !ok {
+		t.Errorf("expected .bashrc to be scanned")
+	} else if bash.SystemPath != "~/.bashrc" || bash.Name != "bashrc" {
+		t.Errorf("expected .bashrc mapped to ~/.bashrc with name 'bashrc', got path=%s, name=%s", bash.SystemPath, bash.Name)
+	}
+
+	// Verify .zshrc -> ~/.zshrc
+	if zsh, ok := specMap[".zshrc"]; !ok {
+		t.Errorf("expected .zshrc to be scanned")
+	} else if zsh.SystemPath != "~/.zshrc" || zsh.Name != "zshrc" {
+		t.Errorf("expected .zshrc mapped to ~/.zshrc with name 'zshrc', got path=%s, name=%s", zsh.SystemPath, zsh.Name)
+	}
+
+	// Verify .tmux.conf -> ~/.tmux.conf
+	if tmux, ok := specMap[".tmux.conf"]; !ok {
+		t.Errorf("expected .tmux.conf to be scanned")
+	} else if tmux.SystemPath != "~/.tmux.conf" || tmux.Name != "tmux" {
+		t.Errorf("expected .tmux.conf mapped to ~/.tmux.conf with name 'tmux', got path=%s, name=%s", tmux.SystemPath, tmux.Name)
+	}
+
+	// Verify starship.toml -> ~/.config/starship.toml
+	if starship, ok := specMap["starship.toml"]; !ok {
+		t.Errorf("expected starship.toml to be scanned")
+	} else if starship.SystemPath != filepath.Join("~/.config", "starship.toml") || starship.Name != "starship" {
+		t.Errorf("expected starship.toml mapped to ~/.config/starship.toml, got path=%s, name=%s", starship.SystemPath, starship.Name)
+	}
+
+	// Verify nvim -> ~/.config/nvim
+	if nvim, ok := specMap["nvim"]; !ok {
+		t.Errorf("expected nvim to be scanned")
+	} else if nvim.SystemPath != filepath.Join("~/.config", "nvim") || !nvim.IsDir {
+		t.Errorf("expected nvim directory mapped to ~/.config/nvim, got path=%s, isDir=%v", nvim.SystemPath, nvim.IsDir)
+	}
+
+	// Verify ignored items are not present
+	if _, ok := specMap["README.md"]; ok {
+		t.Errorf("expected README.md to be ignored")
+	}
+	if _, ok := specMap["ignore_me.txt"]; ok {
+		t.Errorf("expected ignore_me.txt to be ignored by .dotignore")
 	}
 }
 

@@ -61,7 +61,17 @@ func TestWizardModelNavigationAndHeight(t *testing.T) {
 		t.Errorf("expected IsTyping to be false in wizardStepGit")
 	}
 
-	// Press Enter to go to Step 4 (Discover)
+	// Press Enter to go to Step 4 (Ignore)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.step != wizardStepIgnore {
+		t.Fatalf("expected step to be wizardStepIgnore, got %v", m.step)
+	}
+	vIgnore := m.View()
+	if !strings.Contains(vIgnore, "Ignored Files & Patterns") {
+		t.Errorf("expected Ignored Files & Patterns in view, got: %s", vIgnore)
+	}
+
+	// Press Enter to go to Step 5 (Discover)
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.step != wizardStepDiscover {
 		t.Fatalf("expected step to be wizardStepDiscover, got %v", m.step)
@@ -143,14 +153,19 @@ func TestWizardModelFinalizeRegistersAllAndLinksSelected(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	// Step 2 -> Step 3
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	// Step 3 -> Step 4
+	// Step 3 -> Step 4 (Ignore)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.step != wizardStepIgnore {
+		t.Fatalf("expected step to be wizardStepIgnore, got %v", m.step)
+	}
+	// Step 4 -> Step 5 (Discover)
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	if m.step != wizardStepDiscover {
 		t.Fatalf("expected step to be wizardStepDiscover")
 	}
 
-	// In Step 4, unselect all, then select only item 0
+	// In Step 5, unselect all, then select only item 0
 	for i := range m.selector.Items {
 		m.selector.Items[i].Selected = false
 	}
@@ -181,4 +196,101 @@ func TestWizardModelFinalizeRegistersAllAndLinksSelected(t *testing.T) {
 		t.Errorf("expected view to state 1 linked, got: %s", v)
 	}
 	_ = selectedName
+}
+
+func TestWizardModelIgnoreStepAndInSelectorIgnore(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	tmpRepo := filepath.Join(tmpDir, "repo")
+	_ = os.MkdirAll(tmpRepo, 0755)
+	_ = os.Mkdir(filepath.Join(tmpRepo, "nvim"), 0755)
+	_ = os.Mkdir(filepath.Join(tmpRepo, "fish"), 0755)
+	_ = os.WriteFile(filepath.Join(tmpRepo, "backup.sh"), []byte("backup"), 0755)
+
+	cfg := &config.Config{
+		Editor:   "nvim",
+		RepoPath: tmpRepo,
+	}
+
+	m := NewWizardModel(cfg)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.repoInput.SetValue(tmpRepo)
+
+	// Step 1 -> Step 2 -> Step 3 -> Step 4 (Ignore)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.step != wizardStepIgnore {
+		t.Fatalf("expected step to be wizardStepIgnore")
+	}
+
+	// Press 'a' to add a pattern
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if !m.IsTyping() || !m.ignoreAdding {
+		t.Fatalf("expected ignoreAdding to be true on 'a'")
+	}
+	m.ignoreInput.SetValue("custom_skip/")
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.ignoreAdding {
+		t.Fatalf("expected ignoreAdding to be false after enter")
+	}
+
+	// Verify custom_skip/ was added to ignore items
+	foundCustom := false
+	for _, it := range m.ignoreSelector.Items {
+		if it.Name == "custom_skip/" {
+			foundCustom = true
+			break
+		}
+	}
+	if !foundCustom {
+		t.Errorf("expected custom_skip/ in ignore items")
+	}
+
+	// Press Enter to confirm ignore rules and advance to Discover
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.step != wizardStepDiscover {
+		t.Fatalf("expected step to be wizardStepDiscover, got %v", m.step)
+	}
+
+	// .dotignore should have been saved
+	dotIgnorePath := filepath.Join(tmpRepo, ".dotignore")
+	data, err := os.ReadFile(dotIgnorePath)
+	if err != nil {
+		t.Fatalf("failed to read .dotignore: %v", err)
+	}
+	if !strings.Contains(string(data), "custom_skip/") {
+		t.Errorf("expected .dotignore to contain custom_skip/")
+	}
+
+	// In Discover step, find backup.sh and press 'i' to ignore it!
+	initialCount := len(m.repoSpecs)
+	backupIdx := -1
+	for i, s := range m.repoSpecs {
+		if strings.Contains(s.RepoPath, "backup") {
+			backupIdx = i
+			break
+		}
+	}
+	if backupIdx == -1 {
+		t.Fatalf("expected to find backup item in repoSpecs: %+v", m.repoSpecs)
+	}
+
+	m.selector.SetCursor(backupIdx)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+
+	// Should have removed backup from repoSpecs
+	if len(m.repoSpecs) != initialCount-1 {
+		t.Errorf("expected repoSpecs count to decrease by 1, got %d", len(m.repoSpecs))
+	}
+	if !strings.Contains(m.ignoreMsg, "Ignored") {
+		t.Errorf("expected ignoreMsg to confirm ignore, got: %s", m.ignoreMsg)
+	}
+
+	// Verify .dotignore now contains backup.sh
+	data2, _ := os.ReadFile(dotIgnorePath)
+	if !strings.Contains(string(data2), "backup.sh") {
+		t.Errorf("expected .dotignore to contain backup.sh after 'i' pressed: %s", string(data2))
+	}
 }

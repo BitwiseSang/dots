@@ -9,47 +9,39 @@ import (
 	"github.com/BitwiseSang/dots/internal/config"
 )
 
-func isIgnoredRepoEntry(name string) bool {
-	lower := strings.ToLower(name)
-	if strings.HasPrefix(lower, ".") {
-		return true
-	}
-	if strings.HasPrefix(lower, "readme") || strings.HasPrefix(lower, "license") || strings.HasPrefix(lower, "licence") {
-		return true
-	}
-	switch lower {
-	case "makefile", "justfile", "dots", "dots.toml",
-		"setup.sh", "install.sh", "backup.sh", "sync.sh", "bootstrap.sh",
-		"go.mod", "go.sum", "shell.nix", "flake.nix", "flake.lock":
-		return true
-	}
-	return false
-}
-
 func inferSpecFromEntry(name string, isDir bool) config.DotfileSpec {
 	method := "copy"
-	systemPath := filepath.Join("~/.config", name)
+	var systemPath string
 
 	if isDir {
 		method = "rsync"
+		systemPath = filepath.Join("~/.config", name)
 	} else {
-		switch strings.ToLower(name) {
-		case "tmux.conf", ".tmux.conf":
-			systemPath = "~/.tmux.conf"
-		case "zshrc", ".zshrc":
-			systemPath = "~/.zshrc"
-		case "bashrc", ".bashrc":
-			systemPath = "~/.bashrc"
-		case "gitconfig", ".gitconfig":
-			systemPath = "~/.gitconfig"
-		case "vimrc", ".vimrc":
-			systemPath = "~/.vimrc"
-		case "xinitrc", ".xinitrc":
-			systemPath = "~/.xinitrc"
-		case "xprofile", ".xprofile":
-			systemPath = "~/.xprofile"
-		case "profile", ".profile":
-			systemPath = "~/.profile"
+		if strings.HasPrefix(name, ".") {
+			// Top-level files starting with a dot map to user's home directory (e.g. .bashrc -> ~/.bashrc)
+			systemPath = filepath.Join("~", name)
+		} else {
+			// Non-dot top-level files: check common root configs or default to ~/.config/<name>
+			switch strings.ToLower(name) {
+			case "tmux.conf":
+				systemPath = "~/.tmux.conf"
+			case "zshrc":
+				systemPath = "~/.zshrc"
+			case "bashrc":
+				systemPath = "~/.bashrc"
+			case "gitconfig":
+				systemPath = "~/.gitconfig"
+			case "vimrc":
+				systemPath = "~/.vimrc"
+			case "xinitrc":
+				systemPath = "~/.xinitrc"
+			case "xprofile":
+				systemPath = "~/.xprofile"
+			case "profile":
+				systemPath = "~/.profile"
+			default:
+				systemPath = filepath.Join("~/.config", name)
+			}
 		}
 	}
 
@@ -69,7 +61,7 @@ func inferSpecFromEntry(name string, isDir bool) config.DotfileSpec {
 }
 
 // ScanRepoSpecs scans top-level files and directories inside repoPath,
-// inferring DotfileSpecs for non-ignored entries.
+// inferring DotfileSpecs for non-ignored entries using .dotignore.
 func ScanRepoSpecs(repoPath string) ([]config.DotfileSpec, error) {
 	absPath := config.ExpandPath(repoPath)
 	entries, err := os.ReadDir(absPath)
@@ -77,15 +69,17 @@ func ScanRepoSpecs(repoPath string) ([]config.DotfileSpec, error) {
 		return nil, err
 	}
 
+	dotIgnore := LoadDotIgnore(absPath)
+
 	var specs []config.DotfileSpec
 	for _, e := range entries {
 		name := e.Name()
-		if isIgnoredRepoEntry(name) {
+		info, err := e.Info()
+		if err != nil {
 			continue
 		}
 
-		info, err := e.Info()
-		if err != nil {
+		if dotIgnore.Matches(name, info.IsDir()) {
 			continue
 		}
 
@@ -161,12 +155,17 @@ func RefreshDatabase(cfg *config.Config) ([]config.DotfileSpec, bool) {
 		return nil, false
 	}
 
+	dotIgnore := LoadDotIgnore(absPath)
 	var candidates []config.DotfileSpec
 
 	// Check for repo-level config.toml first
 	if cfgFile := config.FindRepoConfigFile(absPath); cfgFile != "" {
 		if repoCfg, err := config.LoadFromPath(cfgFile); err == nil && len(repoCfg.Dotfiles) > 0 {
-			candidates = append(candidates, repoCfg.Dotfiles...)
+			for _, s := range repoCfg.Dotfiles {
+				if !dotIgnore.Matches(s.RepoPath, s.IsDir) {
+					candidates = append(candidates, s)
+				}
+			}
 		}
 	}
 

@@ -431,6 +431,16 @@ func (s Selector) CursorIndex() int {
 	return s.filteredIndices[s.cursor]
 }
 
+func (s *Selector) SetCursor(idx int) {
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(s.filteredIndices) {
+		idx = len(s.filteredIndices) - 1
+	}
+	s.cursor = idx
+}
+
 func (s Selector) IsFiltering() bool {
 	return s.filtering
 }

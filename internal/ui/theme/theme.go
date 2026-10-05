@@ -12,6 +12,7 @@ const (
 	Primary   = lipgloss.Color("#8B5CF6") // violet
 	Secondary = lipgloss.Color("#06B6D4") // cyan
 	Accent    = lipgloss.Color("#F59E0B") // amber
+	Warning   = lipgloss.Color("#F59E0B") // amber
 	Success   = lipgloss.Color("#10B981") // emerald
 	Error     = lipgloss.Color("#EF4444") // red
 	Muted     = lipgloss.Color("#4B5563") // muted gray

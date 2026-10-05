@@ -20,8 +20,11 @@ func TestConfigArgsFunction(t *testing.T) {
 	// Custom home
 	t.Setenv("HOME", tempDir)
 
+	repoDir := filepath.Join(tempDir, "dotfiles")
+	_ = os.MkdirAll(repoDir, 0755)
+
 	cfg := &config.Config{
-		RepoPath: tempDir,
+		RepoPath: repoDir,
 		Dotfiles: []config.DotfileSpec{
 			{Name: "nvim", RepoPath: "nvim", SystemPath: "~/.config/nvim"},
 			{Name: "tmux", RepoPath: "tmux", SystemPath: "~/.tmux.conf"},

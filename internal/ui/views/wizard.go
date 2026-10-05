@@ -23,6 +23,7 @@ const (
 	wizardStepCloning
 	wizardStepEditor
 	wizardStepGit
+	wizardStepIgnore
 	wizardStepDiscover
 	wizardStepComplete
 )
@@ -49,6 +50,11 @@ type WizardModel struct {
 	selector       components.Selector
 	repoSpecs      []config.DotfileSpec
 	foundRepoCfg   bool
+	dotIgnore      *dotfile.DotIgnore
+	ignoreSelector components.Selector
+	ignoreInput    textinput.Model
+	ignoreAdding   bool
+	ignoreMsg      string
 	spinner        spinner.Model
 	err            error
 	linkedCount    int
@@ -97,23 +103,39 @@ func NewWizardModel(cfg *config.Config) WizardModel {
 	sel.ActiveColor = theme.Secondary
 	sel.CheckColor = theme.Success
 
+	ignoreSel := components.NewSelector(nil)
+	ignoreSel.ActiveColor = theme.Secondary
+	ignoreSel.CheckColor = theme.Success
+
+	ignoreTi := textinput.New()
+	ignoreTi.Prompt = "Pattern: "
+	ignoreTi.Placeholder = "e.g. *.log, temp/, backup.sh"
+	ignoreTi.PromptStyle = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
+	ignoreTi.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
+	ignoreTi.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.Muted)
+
 	return WizardModel{
-		cfg:        cfg,
-		step:       wizardStepRepo,
-		repoInput:  repoTi,
-		editorOpts: editors,
-		editorIdx:  0,
-		autoCommit: true,
-		autoPush:   false,
-		gitOptIdx:  0,
-		selector:   sel,
-		spinner:    sp,
-		animStep:   0,
+		cfg:            cfg,
+		step:           wizardStepRepo,
+		repoInput:      repoTi,
+		editorOpts:     editors,
+		editorIdx:      0,
+		autoCommit:     true,
+		autoPush:       false,
+		gitOptIdx:      0,
+		selector:       sel,
+		ignoreSelector: ignoreSel,
+		ignoreInput:    ignoreTi,
+		spinner:        sp,
+		animStep:       0,
 	}
 }
 
 func (m WizardModel) IsTyping() bool {
 	if m.step == wizardStepRepo {
+		return true
+	}
+	if m.step == wizardStepIgnore && m.ignoreAdding {
 		return true
 	}
 	if m.step == wizardStepDiscover && m.selector.IsFiltering() {
@@ -158,6 +180,7 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 			avail = 3
 		}
 		m.selector.SetSize(msg.Width, avail)
+		m.ignoreSelector.SetSize(msg.Width, avail)
 
 	case tea.KeyMsg:
 		switch m.step {
@@ -268,12 +291,80 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 					m.autoPush = !m.autoPush
 				}
 			case "enter":
-				m.step = wizardStepDiscover
+				m.step = wizardStepIgnore
 				return m, nil
 			case "esc":
 				m.step = wizardStepEditor
 				return m, nil
 			}
+
+		case wizardStepIgnore:
+			if m.ignoreAdding {
+				switch msg.String() {
+				case "esc":
+					m.ignoreAdding = false
+					m.ignoreInput.Blur()
+					return m, nil
+				case "enter":
+					pat := strings.TrimSpace(m.ignoreInput.Value())
+					if pat != "" {
+						m.ignoreSelector.Items = append(m.ignoreSelector.Items, components.SelectorItem{
+							Name:     pat,
+							Selected: true,
+						})
+					}
+					m.ignoreAdding = false
+					m.ignoreInput.Blur()
+					m.ignoreInput.Reset()
+					return m, nil
+				}
+				m.ignoreInput, cmd = m.ignoreInput.Update(msg)
+				return m, cmd
+			}
+
+			switch msg.String() {
+			case "q":
+				return m, func() tea.Msg {
+					return NavigateMsg{View: ViewHome}
+				}
+			case "a":
+				m.ignoreAdding = true
+				m.ignoreInput.Focus()
+				m.ignoreInput.Reset()
+				return m, textinput.Blink
+			case "d", "x":
+				idx := m.ignoreSelector.CursorIndex()
+				if idx >= 0 && idx < len(m.ignoreSelector.Items) {
+					m.ignoreSelector.Items = append(m.ignoreSelector.Items[:idx], m.ignoreSelector.Items[idx+1:]...)
+					if m.ignoreSelector.CursorIndex() >= len(m.ignoreSelector.Items) && len(m.ignoreSelector.Items) > 0 {
+						m.ignoreSelector.SetCursor(len(m.ignoreSelector.Items) - 1)
+					}
+				}
+				return m, nil
+			case "esc":
+				m.step = wizardStepGit
+				return m, nil
+			case "enter":
+				var pats []string
+				for _, it := range m.ignoreSelector.Items {
+					if it.Selected {
+						pats = append(pats, it.Name)
+					} else {
+						pats = append(pats, "!"+it.Name)
+					}
+				}
+				if m.dotIgnore == nil {
+					m.dotIgnore = dotfile.LoadDotIgnore(m.resolvedLocal)
+				}
+				m.dotIgnore.Patterns = pats
+				_ = m.dotIgnore.Save()
+
+				m.rescanDiscoveredConfigs()
+				m.step = wizardStepDiscover
+				return m, nil
+			}
+			m.ignoreSelector, cmd = m.ignoreSelector.Update(msg)
+			return m, cmd
 
 		case wizardStepDiscover:
 			if m.selector.IsFiltering() {
@@ -291,7 +382,24 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 					m.selector.ClearFilter()
 					return m, nil
 				}
-				m.step = wizardStepGit
+				m.step = wizardStepIgnore
+				return m, nil
+			case "i":
+				idx := m.selector.CursorIndex()
+				if idx >= 0 && idx < len(m.repoSpecs) {
+					target := m.repoSpecs[idx]
+					if m.dotIgnore == nil {
+						m.dotIgnore = dotfile.LoadDotIgnore(m.resolvedLocal)
+					}
+					_ = m.dotIgnore.AddPattern(target.RepoPath)
+					m.ignoreMsg = fmt.Sprintf("Ignored '%s' (saved to .dotignore)", target.Name)
+
+					m.repoSpecs = append(m.repoSpecs[:idx], m.repoSpecs[idx+1:]...)
+					m.selector.Items = append(m.selector.Items[:idx], m.selector.Items[idx+1:]...)
+					if m.selector.CursorIndex() >= len(m.selector.Items) && len(m.selector.Items) > 0 {
+						m.selector.SetCursor(len(m.selector.Items) - 1)
+					}
+				}
 				return m, nil
 			case "enter":
 				return m.finalizeSetup()
@@ -313,6 +421,20 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 }
 
 func (m WizardModel) loadRepoAndAdvance(repoPath string) (WizardModel, tea.Cmd) {
+	m.resolvedLocal = repoPath
+	m.dotIgnore = dotfile.LoadDotIgnore(repoPath)
+
+	var ignoreItems []components.SelectorItem
+	for _, p := range m.dotIgnore.Patterns {
+		ignoreItems = append(ignoreItems, components.SelectorItem{
+			Name:     p,
+			Selected: !strings.HasPrefix(p, "!"),
+		})
+	}
+	m.ignoreSelector = components.NewSelector(ignoreItems)
+	m.ignoreSelector.ActiveColor = theme.Secondary
+	m.ignoreSelector.CheckColor = theme.Success
+
 	specs, repoCfg, _ := dotfile.InspectRepository(repoPath)
 	if repoCfg != nil {
 		if repoCfg.Editor != "" {
@@ -362,9 +484,48 @@ func (m WizardModel) loadRepoAndAdvance(repoPath string) (WizardModel, tea.Cmd) 
 		avail = 3
 	}
 	m.selector.SetSize(m.width, avail)
+	m.ignoreSelector.SetSize(m.width, avail)
 
 	m.step = wizardStepEditor
 	return m, nil
+}
+
+func (m *WizardModel) rescanDiscoveredConfigs() {
+	specs, repoCfg, _ := dotfile.InspectRepository(m.resolvedLocal)
+	m.foundRepoCfg = config.FindRepoConfigFile(m.resolvedLocal) != ""
+	if repoCfg != nil && len(repoCfg.Dotfiles) > 0 {
+		specs = repoCfg.Dotfiles
+	}
+	m.repoSpecs = specs
+
+	items := make([]components.SelectorItem, len(specs))
+	for i, s := range specs {
+		typeLabel := "file"
+		if s.IsDir {
+			typeLabel = "directory"
+		}
+		items[i] = components.SelectorItem{
+			Name:     s.Name,
+			Desc:     typeLabel,
+			Path:     s.SystemPath,
+			IsDir:    s.IsDir,
+			Selected: true,
+		}
+	}
+
+	m.selector = components.NewSelector(items)
+	m.selector.ActiveColor = theme.Secondary
+	m.selector.CheckColor = theme.Success
+
+	headerLines := 13
+	if m.height > 0 && m.height < 28 {
+		headerLines = 5
+	}
+	avail := m.height - headerLines - 6
+	if avail < 3 {
+		avail = 3
+	}
+	m.selector.SetSize(m.width, avail)
 }
 
 func (m WizardModel) finalizeSetup() (WizardModel, tea.Cmd) {
@@ -449,7 +610,7 @@ func (m WizardModel) View() string {
 
 	switch m.step {
 	case wizardStepRepo:
-		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[1/4] Setup Dotfiles Repository") + "\n\n"
+		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[1/5] Setup Dotfiles Repository") + "\n\n"
 		desc := indent + lipgloss.NewStyle().Foreground(theme.Text).Render("Enter your GitHub repository shorthand, git URL, or local path:") + "\n"
 		hint := indent + lipgloss.NewStyle().Foreground(theme.Muted).Render("• GitHub Shorthand: username/repository (e.g. BitwiseSang/dotfiles)\n" +
 			indent + "• Git URL:          https://github.com/user/repo.git\n" +
@@ -475,7 +636,7 @@ func (m WizardModel) View() string {
 		statusHint = "type repo path • enter next • esc cancel • q quit"
 
 	case wizardStepCloning:
-		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[1/4] Cloning Repository") + "\n\n"
+		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[1/5] Cloning Repository") + "\n\n"
 
 		if m.cloneErr != nil {
 			errBox := indent + lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("✗ Failed to clone repository:") + "\n\n" +
@@ -492,7 +653,7 @@ func (m WizardModel) View() string {
 		}
 
 	case wizardStepEditor:
-		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[2/4] Preferred Text Editor") + "\n\n"
+		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[2/5] Preferred Text Editor") + "\n\n"
 		desc := indent + lipgloss.NewStyle().Foreground(theme.Text).Render("Select which editor dots will launch when editing configurations:") + "\n\n"
 
 		var optRows []string
@@ -518,7 +679,7 @@ func (m WizardModel) View() string {
 		statusHint = "↑/↓ select editor • enter next • esc back • q quit"
 
 	case wizardStepGit:
-		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[3/4] Git Automation Preferences") + "\n\n"
+		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[3/5] Git Automation Preferences") + "\n\n"
 		desc := indent + lipgloss.NewStyle().Foreground(theme.Text).Render("Configure automatic Git actions after backing up dotfiles:") + "\n\n"
 
 		commitCheck := "[ ]"
@@ -552,13 +713,56 @@ func (m WizardModel) View() string {
 		)
 		statusHint = "↑/↓ navigate • space toggle • enter next • esc back • q quit"
 
+	case wizardStepIgnore:
+		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[4/5] Ignored Files & Patterns (.dotignore)") + "\n\n"
+		desc := indent + lipgloss.NewStyle().Foreground(theme.Text).Render("Configure files and directories to ignore when managing your dotfiles:") + "\n"
+		hint := indent + lipgloss.NewStyle().Foreground(theme.Muted).Render("(Checked patterns are ignored and saved to .dotignore in your repository)\n\n")
+
+		if m.ignoreAdding {
+			inputBox := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Render("Add new ignore pattern:") + "\n" +
+				indent + m.ignoreInput.View() + "\n\n" +
+				indent + theme.MutedStyle.Render("Press Enter to add pattern, Esc to cancel")
+			content = lipgloss.JoinVertical(lipgloss.Left, stepTitle, desc, hint, inputBox)
+			statusHint = "type pattern • enter confirm • esc cancel"
+		} else {
+			headerLines := 13
+			if m.height > 0 && m.height < 28 {
+				headerLines = 5
+			}
+			avail := m.height - headerLines - 6
+			if avail < 3 {
+				avail = 3
+			}
+			m.ignoreSelector.SetSize(m.width, avail)
+
+			selLines := strings.Split(m.ignoreSelector.View(), "\n")
+			var indentedSel []string
+			for _, l := range selLines {
+				indentedSel = append(indentedSel, indent+l)
+			}
+
+			content = lipgloss.JoinVertical(
+				lipgloss.Left,
+				stepTitle,
+				desc,
+				hint,
+				strings.Join(indentedSel, "\n"),
+			)
+			statusHint = "space toggle • a add pattern • d delete • enter next • esc back • q quit"
+		}
+
 	case wizardStepDiscover:
-		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[4/4] Repository Configurations")
+		stepTitle := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[5/5] Repository Configurations")
 		descText := "Select which configurations from your repository you want to link:"
 		if m.foundRepoCfg {
 			descText = "Detected existing configuration file in repository. Select configs to manage:"
 		}
 		desc := indent + lipgloss.NewStyle().Foreground(theme.Text).Render(descText)
+
+		var banner string
+		if m.ignoreMsg != "" {
+			banner = indent + lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("⚠️  "+m.ignoreMsg) + "\n"
+		}
 
 		headerLines := 13
 		if m.height > 0 && m.height < 28 {
@@ -581,13 +785,13 @@ func (m WizardModel) View() string {
 			stepTitle,
 			"",
 			desc,
-			"",
+			banner,
 			strings.Join(indentedSel, "\n"),
 		)
 		if m.selector.IsFiltering() {
 			statusHint = "tab toggle • enter finish • esc clear • ↑/↓ move"
 		} else {
-			statusHint = "space toggle • a all • / search • enter finish setup • esc back • q quit"
+			statusHint = "space toggle • a all • i ignore item • / search • enter finish setup • esc back • q quit"
 		}
 
 	case wizardStepComplete:
