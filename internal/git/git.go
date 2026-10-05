@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -27,7 +28,7 @@ func HasChanges(repoPath string) (bool, error) {
 
 // HasChangesForPath returns true if a specific subdirectory/file has unstaged, staged, or untracked changes.
 func HasChangesForPath(repoPath, subPath string) (bool, error) {
-	cmd := exec.Command("git", "status", "--porcelain", "--", subPath)
+	cmd := exec.Command("git", "status", "--porcelain", "-u", "--", subPath)
 	cmd.Dir = repoPath
 	out, err := cmd.Output()
 	if err != nil {
@@ -56,27 +57,61 @@ func DiffPath(repoPath, subPath string) (string, error) {
 	statusCmd.Dir = repoPath
 	statusOut, _ := statusCmd.Output()
 
-	var untracked []string
+	var untrackedDiffs []string
 	lines := strings.Split(string(statusOut), "\n")
 	for _, l := range lines {
 		l = strings.TrimSpace(l)
 		if strings.HasPrefix(l, "?? ") {
-			untracked = append(untracked, "+ [untracked] "+strings.TrimPrefix(l, "?? "))
+			relFile := strings.TrimSpace(strings.TrimPrefix(l, "?? "))
+			fullFile := filepath.Join(repoPath, relFile)
+			fi, err := os.Stat(fullFile)
+			if err == nil && !fi.IsDir() {
+				diffCmd := exec.Command("git", "diff", "--no-index", "/dev/null", relFile)
+				diffCmd.Dir = repoPath
+				uOut, _ := diffCmd.Output()
+				if len(uOut) > 0 {
+					untrackedDiffs = append(untrackedDiffs, strings.TrimSpace(string(uOut)))
+				} else {
+					untrackedDiffs = append(untrackedDiffs, "+ [untracked] "+relFile)
+				}
+			} else {
+				untrackedDiffs = append(untrackedDiffs, "+ [untracked] "+relFile)
+			}
 		}
 	}
 
-	if len(untracked) > 0 {
+	if len(untrackedDiffs) > 0 {
 		if diffStr != "" {
 			diffStr += "\n"
 		}
-		diffStr += strings.Join(untracked, "\n")
+		diffStr += strings.Join(untrackedDiffs, "\n")
 	}
 
 	return diffStr, nil
 }
 
+// Add stages all changed files in the repository.
 func Add(repoPath string) error {
 	cmd := exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("git add failed: %s", msg)
+		}
+		return err
+	}
+	return nil
+}
+
+// AddPaths stages specific files or directories in the repository.
+func AddPaths(repoPath string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	args := append([]string{"add", "--"}, paths...)
+	cmd := exec.Command("git", args...)
 	cmd.Dir = repoPath
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -118,6 +153,10 @@ func Push(repoPath string) error {
 }
 
 func CommitMessage(prefix string) string {
+	return CommitMessageWithEntries(prefix, nil)
+}
+
+func CommitMessageWithEntries(prefix string, names []string) string {
 	hostname, _ := os.Hostname()
 	if hostname == "" {
 		hostname = "unknown"
@@ -126,5 +165,8 @@ func CommitMessage(prefix string) string {
 		prefix = "Config backup"
 	}
 	timestamp := time.Now().Format("2006-01-02 at 15:04:05")
+	if len(names) > 0 {
+		return fmt.Sprintf("%s (%s) on %s from %s", prefix, strings.Join(names, ", "), timestamp, hostname)
+	}
 	return fmt.Sprintf("%s on %s from %s", prefix, timestamp, hostname)
 }

@@ -226,6 +226,107 @@ func (e Entry) CheckStatus() Status {
 	return StatusInSync
 }
 
+// HasChanges returns true if the system and repository differ, or if there are uncommitted git changes.
+func (e Entry) HasChanges() bool {
+	sysPath := e.ResolveSystemPath()
+	repoPath := e.AbsRepoPath()
+
+	sysInfo, sysErr := os.Lstat(sysPath)
+	if sysErr != nil {
+		return false
+	}
+	repoInfo, repoErr := os.Stat(repoPath)
+	if repoErr != nil {
+		return true // New in system, missing from repo
+	}
+
+	if e.IsLinked() {
+		return e.HasGitChanges()
+	}
+
+	if e.IsDir {
+		if sysInfo.IsDir() && repoInfo.IsDir() {
+			if !dirsEqual(sysPath, repoPath) {
+				return true
+			}
+		} else {
+			return true
+		}
+	} else {
+		sysData, err1 := os.ReadFile(sysPath)
+		repoData, err2 := os.ReadFile(repoPath)
+		if err1 != nil || err2 != nil || !bytes.Equal(sysData, repoData) {
+			return true
+		}
+	}
+
+	return e.HasGitChanges()
+}
+
+// SetupStatus returns the status relevant for the setup view (focused on symlink state).
+func (e Entry) SetupStatus() Status {
+	repoPath := e.AbsRepoPath()
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		return StatusRepoMissing
+	}
+	if e.IsLinked() {
+		return StatusLinked
+	}
+	sysPath := e.ResolveSystemPath()
+	if _, err := os.Lstat(sysPath); os.IsNotExist(err) {
+		return StatusMissing
+	}
+	return StatusUnlinked
+}
+
+func (e Entry) SetupStatusLabel() string {
+	switch e.SetupStatus() {
+	case StatusLinked:
+		return " Linked"
+	case StatusUnlinked:
+		return "⊘ Unlinked"
+	case StatusMissing:
+		return "∅ Missing"
+	case StatusRepoMissing:
+		return "∅ Repo missing"
+	default:
+		return "? Unknown"
+	}
+}
+
+// BackupStatus returns the status relevant for the backup view (focused on pending changes).
+func (e Entry) BackupStatus() Status {
+	sysPath := e.ResolveSystemPath()
+	if _, err := os.Lstat(sysPath); os.IsNotExist(err) {
+		return StatusMissing
+	}
+
+	repoPath := e.AbsRepoPath()
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		return StatusRepoMissing
+	}
+
+	if e.HasChanges() {
+		return StatusChanged
+	}
+	return StatusInSync
+}
+
+func (e Entry) BackupStatusLabel() string {
+	switch e.BackupStatus() {
+	case StatusInSync:
+		return "✓ In sync"
+	case StatusChanged:
+		return "✗ Changed"
+	case StatusMissing:
+		return "∅ Missing"
+	case StatusRepoMissing:
+		return "+ New"
+	default:
+		return "? Unknown"
+	}
+}
+
 func (e Entry) StatusLabel() string {
 	switch e.CheckStatus() {
 	case StatusInSync:
@@ -237,7 +338,7 @@ func (e Entry) StatusLabel() string {
 	case StatusLinked:
 		return " Linked"
 	case StatusUnlinked:
-		return "Unlinked"
+		return "⊘ Unlinked"
 	case StatusRepoMissing:
 		return "∅ Repo missing"
 	default:

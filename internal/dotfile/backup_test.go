@@ -116,3 +116,55 @@ func TestDiffAndBackup_Linked(t *testing.T) {
 		t.Errorf("expected linked entry to not be marked skipped")
 	}
 }
+
+func TestDiff_NewConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	repoDir := filepath.Join(tmpDir, "repo")
+	_ = os.MkdirAll(repoDir, 0755)
+
+	sysDir := filepath.Join(tmpDir, "sys")
+	_ = os.MkdirAll(sysDir, 0755)
+
+	// Single file new config
+	sysFile := filepath.Join(sysDir, "config.toml")
+	_ = os.WriteFile(sysFile, []byte("theme = 'dark'\n"), 0644)
+
+	spec := config.DotfileSpec{
+		Name:       "mytool",
+		RepoPath:   "mytool.toml",
+		SystemPath: sysFile,
+		Method:     "copy",
+		IsDir:      false,
+	}
+	entry := NewEntry(spec, repoDir)
+
+	d, err := Diff(entry)
+	if err != nil {
+		t.Fatalf("Diff failed for new config: %v", err)
+	}
+	if !strings.Contains(d, "+theme = 'dark'") {
+		t.Errorf("expected diff to show file content additions, got: %s", d)
+	}
+
+	// Directory new config
+	sysAppDir := filepath.Join(sysDir, "myapp")
+	_ = os.MkdirAll(sysAppDir, 0755)
+	_ = os.WriteFile(filepath.Join(sysAppDir, "app.conf"), []byte("port = 8080\n"), 0644)
+
+	specDir := config.DotfileSpec{
+		Name:       "myapp",
+		RepoPath:   "myapp",
+		SystemPath: sysAppDir,
+		Method:     "rsync",
+		IsDir:      true,
+	}
+	entryDir := NewEntry(specDir, repoDir)
+
+	dDir, err := Diff(entryDir)
+	if err != nil {
+		t.Fatalf("Diff failed for new dir config: %v", err)
+	}
+	if !strings.Contains(dDir, "+port = 8080") {
+		t.Errorf("expected dir diff to show directory file content additions, got: %s", dDir)
+	}
+}

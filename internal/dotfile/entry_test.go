@@ -150,3 +150,55 @@ func TestEntryCheckStatus_LinkedWithGit(t *testing.T) {
 		t.Errorf("expected StatusChanged when git has uncommitted changes, got %v", status)
 	}
 }
+
+func TestEntrySetupAndBackupStatus(t *testing.T) {
+	repoDir := t.TempDir()
+
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repoDir
+		_ = cmd.Run()
+	}
+	run("init")
+	run("config", "user.name", "Test")
+	run("config", "user.email", "test@example.com")
+
+	nvimRepo := filepath.Join(repoDir, "nvim")
+	_ = os.MkdirAll(nvimRepo, 0755)
+	initLua := filepath.Join(nvimRepo, "init.lua")
+	_ = os.WriteFile(initLua, []byte("vim.opt.number = true\n"), 0644)
+	run("add", ".")
+	run("commit", "-m", "init nvim")
+
+	sysDir := t.TempDir()
+	sysLink := filepath.Join(sysDir, "nvim")
+	_ = os.Symlink(nvimRepo, sysLink)
+
+	spec := config.DotfileSpec{
+		Name:       "nvim",
+		RepoPath:   "nvim",
+		SystemPath: sysLink,
+		Method:     "rsync",
+		IsDir:      true,
+	}
+	entry := NewEntry(spec, repoDir)
+
+	// Clean git: Setup is Linked, Backup is InSync
+	if entry.SetupStatus() != StatusLinked {
+		t.Errorf("expected SetupStatus to be StatusLinked, got %v", entry.SetupStatus())
+	}
+	if entry.BackupStatus() != StatusInSync {
+		t.Errorf("expected BackupStatus to be StatusInSync, got %v", entry.BackupStatus())
+	}
+
+	// Modify git repo file
+	_ = os.WriteFile(initLua, []byte("vim.opt.number = false\n"), 0644)
+
+	// With pending changes: Setup is STILL Linked, Backup is Changed!
+	if entry.SetupStatus() != StatusLinked {
+		t.Errorf("expected SetupStatus to still be StatusLinked, got %v", entry.SetupStatus())
+	}
+	if entry.BackupStatus() != StatusChanged {
+		t.Errorf("expected BackupStatus to be StatusChanged, got %v", entry.BackupStatus())
+	}
+}

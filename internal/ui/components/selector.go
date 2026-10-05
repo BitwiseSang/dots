@@ -17,6 +17,7 @@ type SelectorItem struct {
 	Selected bool
 	Status   string
 	IsDir    bool
+	Disabled bool
 }
 
 type Selector struct {
@@ -114,7 +115,9 @@ func (s Selector) Update(msg tea.Msg) (Selector, tea.Cmd) {
 			case "tab":
 				if len(s.filteredIndices) > 0 {
 					actualIdx := s.filteredIndices[s.cursor]
-					s.Items[actualIdx].Selected = !s.Items[actualIdx].Selected
+					if !s.Items[actualIdx].Disabled {
+						s.Items[actualIdx].Selected = !s.Items[actualIdx].Selected
+					}
 				}
 				return s, nil
 			case "up":
@@ -164,19 +167,29 @@ func (s Selector) Update(msg tea.Msg) (Selector, tea.Cmd) {
 		case " ":
 			if len(s.filteredIndices) > 0 {
 				actualIdx := s.filteredIndices[s.cursor]
-				s.Items[actualIdx].Selected = !s.Items[actualIdx].Selected
+				if !s.Items[actualIdx].Disabled {
+					s.Items[actualIdx].Selected = !s.Items[actualIdx].Selected
+				}
 			}
 		case "a":
 			if len(s.filteredIndices) > 0 {
 				allSelected := true
+				hasEnabled := false
 				for _, idx := range s.filteredIndices {
-					if !s.Items[idx].Selected {
-						allSelected = false
-						break
+					if !s.Items[idx].Disabled {
+						hasEnabled = true
+						if !s.Items[idx].Selected {
+							allSelected = false
+							break
+						}
 					}
 				}
-				for _, idx := range s.filteredIndices {
-					s.Items[idx].Selected = !allSelected
+				if hasEnabled {
+					for _, idx := range s.filteredIndices {
+						if !s.Items[idx].Disabled {
+							s.Items[idx].Selected = !allSelected
+						}
+					}
 				}
 			}
 		}
@@ -243,7 +256,9 @@ func (s Selector) View() string {
 		// Checkbox - fixed width 4. When highlighted by cursor, brackets match ActiveColor
 		checkboxStyle := lipgloss.NewStyle().Width(4)
 		var checkboxStr string
-		if isCursor {
+		if item.Disabled {
+			checkboxStr = lipgloss.NewStyle().Width(4).Foreground(theme.Muted).Faint(true).Render(" -  ")
+		} else if isCursor {
 			if item.Selected {
 				checkboxStr = checkboxStyle.Foreground(s.ActiveColor).Bold(true).Render("[" + theme.IconInSync + "] ")
 			} else {
@@ -272,17 +287,26 @@ func (s Selector) View() string {
 		statusDesc := item.Desc
 		statusStyle := lipgloss.NewStyle().Width(18).MaxHeight(1)
 		switch {
-		case strings.Contains(statusDesc, "In sync"):
+		case strings.Contains(statusDesc, "In sync") || strings.Contains(statusDesc, "Up to date"):
 			statusStr := lipgloss.NewStyle().Foreground(theme.Success).Render(theme.IconInSync + " In sync")
 			statusDesc = statusStyle.Render(statusStr)
 		case strings.Contains(statusDesc, "Changed"):
 			statusStr := lipgloss.NewStyle().Foreground(theme.Accent).Render(theme.IconChanged + " Changed")
+			statusDesc = statusStyle.Render(statusStr)
+		case strings.Contains(statusDesc, "Repo missing"):
+			statusStr := lipgloss.NewStyle().Foreground(theme.Error).Render(theme.IconMissing + " Repo missing")
 			statusDesc = statusStyle.Render(statusStr)
 		case strings.Contains(statusDesc, "Missing"):
 			statusStr := lipgloss.NewStyle().Foreground(theme.Muted).Render(theme.IconMissing + " Missing")
 			statusDesc = statusStyle.Render(statusStr)
 		case strings.Contains(statusDesc, "Linked"):
 			statusStr := lipgloss.NewStyle().Foreground(theme.Secondary).Render(theme.IconLinked + " Linked")
+			statusDesc = statusStyle.Render(statusStr)
+		case strings.Contains(statusDesc, "Unlinked"):
+			statusStr := lipgloss.NewStyle().Foreground(theme.Muted).Render("⊘ Unlinked")
+			statusDesc = statusStyle.Render(statusStr)
+		case strings.Contains(statusDesc, "New"):
+			statusStr := lipgloss.NewStyle().Foreground(theme.Accent).Render("+ New")
 			statusDesc = statusStyle.Render(statusStr)
 		default:
 			statusDesc = statusStyle.Render(lipgloss.NewStyle().Foreground(theme.Subtle).Render(statusDesc))

@@ -43,7 +43,7 @@ func NewSetupModel(entries []dotfile.Entry, cfg *config.Config) SetupModel {
 	for i, e := range entries {
 		items[i] = components.SelectorItem{
 			Name:  e.Name,
-			Desc:  e.StatusLabel(),
+			Desc:  e.SetupStatusLabel(),
 			Path:  e.ResolveSystemPath(),
 			IsDir: e.IsDir,
 		}
@@ -82,7 +82,7 @@ func (m *SetupModel) Reset(entries []dotfile.Entry) {
 	for i, e := range entries {
 		items[i] = components.SelectorItem{
 			Name:  e.Name,
-			Desc:  e.StatusLabel(),
+			Desc:  e.SetupStatusLabel(),
 			Path:  e.ResolveSystemPath(),
 			IsDir: e.IsDir,
 		}

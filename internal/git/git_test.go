@@ -118,3 +118,42 @@ func TestGitHasChangesAndDiff(t *testing.T) {
 		t.Errorf("expected unified diff for modified file, got: %s", diffModified)
 	}
 }
+
+func TestGitAddPathsSelective(t *testing.T) {
+	repo := initTestGitRepo(t)
+
+	// Create 2 configs: nvim and fish
+	nvimDir := filepath.Join(repo, "nvim")
+	_ = os.MkdirAll(nvimDir, 0755)
+	_ = os.WriteFile(filepath.Join(nvimDir, "init.lua"), []byte("print('nvim')\n"), 0644)
+
+	fishDir := filepath.Join(repo, "fish")
+	_ = os.MkdirAll(fishDir, 0755)
+	_ = os.WriteFile(filepath.Join(fishDir, "config.fish"), []byte("echo fish\n"), 0644)
+
+	// Stage ONLY nvim
+	if err := AddPaths(repo, []string{"nvim"}); err != nil {
+		t.Fatalf("AddPaths failed: %v", err)
+	}
+
+	msg := CommitMessageWithEntries("Backup", []string{"nvim"})
+	if !strings.Contains(msg, "Backup (nvim)") {
+		t.Errorf("expected commit message to contain 'Backup (nvim)', got: %s", msg)
+	}
+
+	if err := Commit(repo, msg); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	// nvim should be committed and clean
+	nvimChanged, _ := HasChangesForPath(repo, "nvim")
+	if nvimChanged {
+		t.Errorf("expected nvim to have no changes after commit")
+	}
+
+	// fish should STILL have uncommitted changes!
+	fishChanged, _ := HasChangesForPath(repo, "fish")
+	if !fishChanged {
+		t.Errorf("expected fish to remain untracked/uncommitted")
+	}
+}
