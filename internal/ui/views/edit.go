@@ -244,10 +244,43 @@ func (m EditModel) View() string {
 		contentBuilder.WriteString(indent + m.searchInput.View() + " " + badgeStyle + "\n\n")
 	}
 
+	headerHeight := components.HeaderHeight(width, height)
+	overhead := headerHeight + 5
+	if m.filtering || m.filterQuery != "" {
+		overhead += 2
+	}
+	avail := height - overhead
+	if avail < 3 {
+		avail = 3
+	}
+
 	if len(m.filteredIndices) == 0 {
 		contentBuilder.WriteString(indent + theme.MutedStyle.Render("No matching configurations found.\n"))
 	} else {
-		for i, actualIdx := range m.filteredIndices {
+		start := 0
+		end := len(m.filteredIndices)
+		if len(m.filteredIndices) > avail {
+			start = m.cursor - avail/2
+			if start < 0 {
+				start = 0
+			}
+			end = start + avail
+			if end > len(m.filteredIndices) {
+				end = len(m.filteredIndices)
+				start = end - avail
+				if start < 0 {
+					start = 0
+				}
+			}
+		}
+
+		nameWidth := 18
+		if width < 55 {
+			nameWidth = 12
+		}
+
+		for i := start; i < end; i++ {
+			actualIdx := m.filteredIndices[i]
 			entry := m.entries[actualIdx]
 			isSelected := i == m.cursor
 
@@ -259,7 +292,7 @@ func (m EditModel) View() string {
 				cursorStr = cursorStyle.Foreground(activeColor).Bold(true).Render(theme.IconCursor + " ")
 			}
 
-			nameStyle := lipgloss.NewStyle().Width(18)
+			nameStyle := lipgloss.NewStyle().Width(nameWidth)
 			if isSelected {
 				nameStyle = nameStyle.Foreground(activeColor).Bold(true)
 			} else {
@@ -281,7 +314,7 @@ func (m EditModel) View() string {
 			)
 
 			contentBuilder.WriteString(row)
-			if i < len(m.filteredIndices)-1 {
+			if i < end-1 {
 				contentBuilder.WriteString("\n")
 			}
 		}

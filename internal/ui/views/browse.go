@@ -177,10 +177,7 @@ func (m BrowseModel) Refresh() tea.Cmd {
 }
 
 func (m BrowseModel) availHeight() int {
-	headerLines := 13
-	if m.height > 0 && m.height < 28 {
-		headerLines = 5
-	}
+	headerLines := components.HeaderHeight(m.width, m.height)
 	overhead := headerLines + 5
 	if m.filtering || m.filterQuery != "" {
 		overhead += 2

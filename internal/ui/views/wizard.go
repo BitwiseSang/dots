@@ -737,10 +737,7 @@ func (m WizardModel) View() string {
 			content = lipgloss.JoinVertical(lipgloss.Left, stepTitle, desc, hint, inputBox)
 			statusHint = "type pattern • enter confirm • esc cancel"
 		} else {
-			headerLines := 13
-			if m.height > 0 && m.height < 28 {
-				headerLines = 5
-			}
+			headerLines := components.HeaderHeight(m.width, m.height)
 			avail := m.height - headerLines - 6
 			if avail < 3 {
 				avail = 3
@@ -776,10 +773,7 @@ func (m WizardModel) View() string {
 			banner = indent + lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("⚠️  "+m.ignoreMsg) + "\n"
 		}
 
-		headerLines := 13
-		if m.height > 0 && m.height < 28 {
-			headerLines = 5
-		}
+		headerLines := components.HeaderHeight(m.width, m.height)
 		avail := m.height - headerLines - 6
 		if avail < 3 {
 			avail = 3

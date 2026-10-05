@@ -325,8 +325,12 @@ func (s Selector) View() string {
 			}
 		}
 
-		// Item Name - fixed width 18
-		nameStyle := lipgloss.NewStyle().Width(18).MaxHeight(1)
+		// Item Name - responsive width (12 on narrow, 18 on standard)
+		nameWidth := 18
+		if s.width > 0 && s.width < 55 {
+			nameWidth = 12
+		}
+		nameStyle := lipgloss.NewStyle().Width(nameWidth).MaxHeight(1)
 		if isCursor {
 			nameStyle = nameStyle.Foreground(s.ActiveColor).Bold(true)
 		} else if item.Selected {
@@ -336,9 +340,13 @@ func (s Selector) View() string {
 		}
 		nameStr := nameStyle.Render(item.Name)
 
-		// Status formatting with fixed width 18
+		// Status formatting with fixed width 18 (or 14 on narrow)
+		statusWidth := 18
+		if s.width > 0 && s.width < 55 {
+			statusWidth = 14
+		}
 		statusDesc := item.Desc
-		statusStyle := lipgloss.NewStyle().Width(18).MaxHeight(1)
+		statusStyle := lipgloss.NewStyle().Width(statusWidth).MaxHeight(1)
 		switch {
 		case strings.Contains(statusDesc, "In sync") || strings.Contains(statusDesc, "Up to date"):
 			statusStr := lipgloss.NewStyle().Foreground(theme.Success).Render(theme.IconInSync + " In sync")
@@ -365,10 +373,15 @@ func (s Selector) View() string {
 			statusDesc = statusStyle.Render(lipgloss.NewStyle().Foreground(theme.Subtle).Render(statusDesc))
 		}
 
-		// Path hint
+		// Path hint - only show if there is room and truncate if needed
 		pathStr := ""
-		if item.Path != "" {
-			pathStr = lipgloss.NewStyle().Foreground(theme.Muted).Render(item.Path)
+		if item.Path != "" && (s.width <= 0 || s.width >= 50) {
+			p := item.Path
+			availPath := s.width - nameWidth - statusWidth - 14
+			if s.width > 0 && len(p) > availPath && availPath > 6 {
+				p = p[:availPath/2-1] + "..." + p[len(p)-(availPath/2-2):]
+			}
+			pathStr = lipgloss.NewStyle().Foreground(theme.Muted).Render(p)
 		}
 
 		line := lipgloss.JoinHorizontal(

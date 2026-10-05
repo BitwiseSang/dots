@@ -40,3 +40,17 @@ func TestRenderShortcutsCompact(t *testing.T) {
 		t.Errorf("Expected compact ' • ' bullet spacing, got extra spaces in %q", rendered)
 	}
 }
+
+func TestPlacePinnedStatusBar_ClampingOverflow(t *testing.T) {
+	tallTop := strings.Repeat("Content Line\n", 25)
+	statusBar := "Status"
+
+	for targetHeight := 10; targetHeight <= 25; targetHeight++ {
+		res := PlacePinnedStatusBar(tallTop, statusBar, targetHeight)
+		h := lipgloss.Height(res)
+		if h != targetHeight {
+			t.Errorf("For target %d with tall top: expected height %d, got %d", targetHeight, targetHeight, h)
+		}
+	}
+}
+

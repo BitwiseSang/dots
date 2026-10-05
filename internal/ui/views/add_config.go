@@ -167,10 +167,7 @@ func (m AddConfigModel) Update(msg tea.Msg) (AddConfigModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		headerLines := 13
-		if msg.Height > 0 && msg.Height < 28 {
-			headerLines = 5
-		}
+		headerLines := components.HeaderHeight(msg.Width, msg.Height)
 		avail := msg.Height - headerLines - 6
 		if avail < 3 {
 			avail = 3

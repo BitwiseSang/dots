@@ -180,33 +180,53 @@ func (m HomeModel) View() string {
 		titleStr := titleStyle.Render(item.title)
 
 		// Description - matching cohesive active color on select
-		descStyle := lipgloss.NewStyle().Foreground(theme.Muted)
-		if isSelected {
-			descStyle = descStyle.Foreground(activeColor)
+		var row string
+		if m.width >= 55 {
+			descStyle := lipgloss.NewStyle().Foreground(theme.Muted)
+			if isSelected {
+				descStyle = descStyle.Foreground(activeColor)
+			}
+			descStr := descStyle.Render(item.desc)
+			row = indent + lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				cursorStr,
+				keyBadge,
+				iconStr,
+				titleStr,
+				descStr,
+			)
+		} else {
+			row = indent + lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				cursorStr,
+				keyBadge,
+				iconStr,
+				titleStr,
+			)
 		}
-		descStr := descStyle.Render(item.desc)
-
-		row := indent + lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			cursorStr,
-			keyBadge,
-			iconStr,
-			titleStr,
-			descStr,
-		)
 
 		menuBuilder.WriteString(row)
 		if i < len(m.items)-1 {
-			menuBuilder.WriteString("\n\n")
+			if m.height > 0 && m.height < 26 {
+				menuBuilder.WriteString("\n")
+			} else {
+				menuBuilder.WriteString("\n\n")
+			}
 		}
 	}
 
-	menu := lipgloss.NewStyle().
-		PaddingTop(1).
-		PaddingBottom(1).
-		Render(menuBuilder.String())
+	menuStyle := lipgloss.NewStyle()
+	if m.height <= 0 || m.height >= 26 {
+		menuStyle = menuStyle.PaddingTop(1).PaddingBottom(1)
+	}
+	menu := menuStyle.Render(menuBuilder.String())
 
 	statusBar := components.StatusBar("Home", "enter select • b backup • s setup • e edit • a add • f browse • q quit", m.width)
-	topBlock := lipgloss.JoinVertical(lipgloss.Left, header, "", menu)
+	var topBlock string
+	if m.height > 0 && m.height < 22 {
+		topBlock = lipgloss.JoinVertical(lipgloss.Left, header, menu)
+	} else {
+		topBlock = lipgloss.JoinVertical(lipgloss.Left, header, "", menu)
+	}
 	return components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
 }

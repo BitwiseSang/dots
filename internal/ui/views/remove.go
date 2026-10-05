@@ -127,9 +127,18 @@ func (m RemoveModel) Update(msg tea.Msg) (RemoveModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.selector.SetSize(msg.Width, msg.Height-14)
+		headerLines := components.HeaderHeight(msg.Width, msg.Height)
+		avail := msg.Height - headerLines - 3
+		if avail < 3 {
+			avail = 3
+		}
+		m.selector.SetSize(msg.Width, avail)
 		m.vp.Width = msg.Width - 4
-		m.vp.Height = msg.Height - 14
+		vpHeight := msg.Height - headerLines - 4
+		if vpHeight < 4 {
+			vpHeight = 4
+		}
+		m.vp.Height = vpHeight
 
 	case removeFinishedMsg:
 		m.results = msg.results

@@ -135,17 +135,22 @@ func (m BackupModel) Update(msg tea.Msg) (BackupModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		headerLines := 13
-		if msg.Height > 0 && msg.Height < 28 {
-			headerLines = 5
+		headerLines := components.HeaderHeight(msg.Width, msg.Height)
+		avail := msg.Height - headerLines - 3
+		if avail < 3 {
+			avail = 3
 		}
-		m.selector.SetSize(msg.Width, msg.Height-headerLines-3)
+		m.selector.SetSize(msg.Width, avail)
 		padLeft := (msg.Width - 66) / 2
 		if padLeft < 2 {
 			padLeft = 2
 		}
 		m.vp.Width = msg.Width - (padLeft * 2)
-		m.vp.Height = msg.Height - headerLines - 4
+		vpHeight := msg.Height - headerLines - 4
+		if vpHeight < 4 {
+			vpHeight = 4
+		}
+		m.vp.Height = vpHeight
 
 	case backupDoneMsg:
 		m.results = msg

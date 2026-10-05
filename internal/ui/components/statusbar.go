@@ -84,13 +84,24 @@ func StatusBar(context, hint string, width int) string {
 }
 
 // PlacePinnedStatusBar joins the top content block and status bar, inserting blank lines if targetHeight > used,
-// ensuring the output NEVER exceeds targetHeight (preventing terminal scrolling and header clipping).
+// and ensures the output NEVER exceeds targetHeight (preventing terminal scrolling and header clipping).
 func PlacePinnedStatusBar(topBlock, statusBar string, targetHeight int) string {
 	if targetHeight <= 0 {
 		return lipgloss.JoinVertical(lipgloss.Top, topBlock, statusBar)
 	}
-	topHeight := lipgloss.Height(topBlock)
+
 	statusHeight := lipgloss.Height(statusBar)
+	maxTopHeight := targetHeight - statusHeight
+	if maxTopHeight < 1 {
+		maxTopHeight = 1
+	}
+
+	// Clamp topBlock if it exceeds allowed height to prevent terminal scrolling
+	if lipgloss.Height(topBlock) > maxTopHeight {
+		topBlock = lipgloss.NewStyle().MaxHeight(maxTopHeight).Render(topBlock)
+	}
+
+	topHeight := lipgloss.Height(topBlock)
 	totalUsed := topHeight + statusHeight
 
 	if totalUsed >= targetHeight {

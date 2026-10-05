@@ -11,14 +11,13 @@ import (
 	"github.com/BitwiseSang/dots/internal/ui"
 	"github.com/BitwiseSang/dots/internal/ui/theme"
 	"github.com/BitwiseSang/dots/internal/ui/views"
+	"github.com/BitwiseSang/dots/internal/version"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
 var (
-	version = "0.1.0"
-
 	editorFlag string
 	repoFlag   string
 )
@@ -28,7 +27,7 @@ func main() {
 		Use:     "dots [command]",
 		Short:   "dots — A beautiful TUI for managing your dotfiles",
 		Long:    theme.Logo() + "\nA modern, selective dotfiles manager with backup, setup, editing, and diff previews.",
-		Version: version,
+		Version: version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
