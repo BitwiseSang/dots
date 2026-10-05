@@ -1,359 +1,209 @@
-# `dots` — Architecture Plan
+# `dots` — Architecture & Design Specification
 
-> A beautiful TUI for managing your dotfiles: selective backup, setup, editing, and diff previews.
-
----
-
-## 1. CLI Interface
-
-`dots` works in two modes: **interactive TUI** (no args) and **direct commands** (with args).
-
-```
-dots                          # Launch interactive TUI (main menu)
-dots backup                   # TUI: jump straight to backup selection
-dots setup                    # TUI: jump straight to setup selection
-dots edit                     # TUI: jump straight to edit selection
-dots edit <name>              # Direct: open config in editor immediately (no TUI)
-dots edit nvim                # Example: opens ~/.config/nvim/ in $EDITOR
-dots edit tmux                # Example: opens ~/.tmux.conf in $EDITOR
-dots edit ghostty             # Example: opens ghostty config in $EDITOR
-dots --help                   # Help text
-dots --version                # Version
-```
-
-> [!TIP]
-> `dots edit <name>` bypasses the TUI entirely — it resolves the config path and execs the editor directly. This is the "quick access from terminal" feature you asked for.
+> A modern, universal Terminal User Interface (TUI) and CLI tool for managing, synchronizing, and editing dotfiles across Unix systems.
 
 ---
 
-## 2. TUI Views & Navigation
+## 1. Overview & Core Philosophy
+
+`dots` is designed as a standalone, multi-user dotfile manager suitable for any Linux or macOS environment. It treats user configuration repositories agnostically, enforcing clean separation of concerns and zero personal hardcoding:
+
+- **Strict Initialization Guard**: `dots` does not inject fake or arbitrary defaults. On an uninitialized system, running direct subcommands safely alerts the user to run `dots init`, while bare execution launches the interactive setup wizard.
+- **Dynamic Configuration Discovery**: Discovers existing user configurations dynamically from `$XDG_CONFIG_HOME` (default `~/.config`) and `$HOME` without assuming specific desktop environments or editors.
+- **Atomic & Safe Filesystem Operations**: All configuration and ignore file saves employ write-to-temp and atomic rename patterns (`os.Rename`). Setup backups preserve relative path hierarchies and use high-resolution timestamps to eliminate basename collisions.
+- **Streaming Diffs & Memory Efficiency**: Directory comparisons stream chunks up to 32KB rather than buffering entire files into memory.
+
+---
+
+## 2. CLI Interface
+
+`dots` operates in two primary modes: **interactive TUI** and **direct CLI commands**.
+
+```bash
+# Setup & Initialization
+dots                           # Launch TUI (runs setup wizard if uninitialized)
+dots init                      # Launch interactive repository setup wizard
+
+# Main Workflows
+dots setup                     # TUI: select and symlink repository configs to system
+dots setup --all               # Direct: symlink all configs without TUI
+dots backup                    # TUI: select and copy system configs into repository
+dots backup --all              # Direct: backup all configs without TUI
+dots edit                      # TUI: select config to edit from interactive list
+dots edit <name>               # Direct: open config path in $EDITOR immediately
+dots add                       # TUI: discover or manually register new configs
+dots remove                    # TUI: interactive configuration removal
+dots remove <name> [flags]     # Direct: remove/unlink specified configuration
+dots refresh                   # Direct: scan repository and track newly found configs
+
+# Global Flags
+  -e, --editor string          # Override editor command
+  -r, --repo string            # Override repository path
+  -v, --version                # Display version
+  -h, --help                   # Display help information
+```
+
+---
+
+## 3. TUI Architecture & Flow
 
 ```mermaid
 flowchart TD
-    CLI["dots (no args)"] --> HOME["🏠 Home View\nMain menu"]
-    CLI2["dots backup"] --> BACKUP
-    CLI3["dots setup"] --> SETUP
-    CLI4["dots edit"] --> EDIT
+    START["CLI Launch"] --> CHECK{"Initialized?\n(~/.config/dots/config.toml)"}
+    
+    CHECK -->|"No & 'dots' / 'dots init'"| WIZARD["🧙 Setup Wizard\nClone/Link Repo & Sane Defaults"]
+    CHECK -->|"No & Subcommand"| ERR["❌ Error: Run 'dots init' first"]
+    CHECK -->|"Yes"| ROUTE{"Subcommand?"}
 
-    HOME -->|"1"| BACKUP["📦 Backup View\nMulti-select configs"]
-    HOME -->|"2"| SETUP["🔗 Setup View\nMulti-select configs"]
-    HOME -->|"3"| EDIT["✏️ Edit View\nSelect config to edit"]
-    HOME -->|"q"| QUIT["Exit"]
+    ROUTE -->|"none"| HOME["🏠 Home View\nDashboard & Main Menu"]
+    ROUTE -->|"backup"| BACKUP["📦 Backup View\nMulti-select & Status"]
+    ROUTE -->|"setup"| SETUP["🔗 Setup View\nMulti-select & State"]
+    ROUTE -->|"edit"| EDIT["✏️ Edit View\nFilter & Launch Editor"]
+    ROUTE -->|"add"| ADD["➕ Add Config View\nDynamic Discovery & Form"]
+    ROUTE -->|"remove"| REMOVE["🗑️ Remove View\nSymlink or Full Deletion"]
+    ROUTE -->|"browse"| BROWSE["📂 Browse View\nFilesystem Explorer"]
 
-    BACKUP --> DIFF_B["🔍 Diff Preview\nScrollable diff viewer"]
-    DIFF_B -->|"confirm"| EXEC_B["⚙️ Execute Backup\nCopy/rsync files"]
-    EXEC_B --> GIT["🌿 Git Prompt\nCommit & push?"]
-    GIT -->|"yes"| COMMIT["Auto-commit & push"]
-    GIT -->|"no"| DONE["✅ Done"]
-    COMMIT --> DONE
+    HOME --> BACKUP
+    HOME --> SETUP
+    HOME --> EDIT
+    HOME --> ADD
+    HOME --> REMOVE
+    HOME --> BROWSE
 
-    SETUP --> DIFF_S["🔍 Preview\nWhat will be linked"]
-    DIFF_S -->|"confirm"| EXEC_S["⚙️ Execute Setup\nSymlink files"]
-    EXEC_S --> DONE
+    BACKUP --> DIFF["🔍 Diff Preview\nUnified colored diff"]
+    DIFF -->|"Confirm"| EXEC_B["⚙️ Copy / Rsync to Repo"]
+    EXEC_B --> GIT["🌿 Git Commit & Push Prompt"]
 
-    EDIT -->|"select"| EDITOR["Launch $EDITOR\n(suspends TUI)"]
+    SETUP --> PREVIEW["🔍 Symlink Preview\nSource ↔ Target mapping"]
+    PREVIEW -->|"Confirm"| EXEC_S["⚙️ Symlink Creation\nTimestamped Backups"]
+
+    EDIT -->|"Select"| EDITOR["Launch $EDITOR\n(Suspends TUI)"]
     EDITOR --> EDIT
 ```
 
-### View Details
-
-#### 🏠 Home View
-- Centred logo/title rendered with lipgloss
-- Vertical menu list using `bubbles/list` with styled item delegates
-- Options: **Backup**, **Setup**, **Edit**, **Quit**
-- Footer with keybinding help via `bubbles/help`
-
-#### 📦 Backup View
-- Multi-select checklist of all registered dotfile configs
-- Each item shows: name, status indicator (✓ in-sync / ✗ changed / ? missing)
-- `[space]` toggles selection, `[a]` toggles all, `[enter]` proceeds
-- → Transitions to **Diff Preview** for selected items
-
-#### 🔗 Setup View
-- Multi-select checklist identical to Backup
-- Each item shows: name, current state (🔗 linked / 📄 exists / ∅ missing)
-- `[enter]` → Preview of what will be symlinked (source → dest)
-- Confirm → executes symlink creation (with backup of existing files)
-
-#### ✏️ Edit View
-- Single-select list of configs
-- Each item shows: name, path, type (file/directory)
-- `[enter]` → suspends TUI, launches editor, resumes TUI on exit
-- File configs open the specific file; directory configs open the directory
-
-#### 🔍 Diff Preview
-- `bubbles/viewport` displaying a colourized diff
-- Scrollable, with line counts and file headers
-- `[enter]` to confirm, `[esc]` to go back
-- Additions in green, deletions in red, headers in blue
-
 ---
 
-## 3. Project Structure
+## 4. Project Structure
 
 ```
-dotfiles/
-└── dots/                          # ← Added to dotfiles/.gitignore
-    ├── cmd/
-    │   └── dots/
-    │       └── main.go            # Entry point: CLI parsing → TUI or direct command
-    ├── internal/
-    │   ├── config/
-    │   │   ├── config.go          # Config file loading, defaults, validation
-    │   │   └── defaults.go        # Default dotfile registry (your current configs)
-    │   ├── dotfile/
-    │   │   ├── entry.go           # DotfileEntry type, path resolution
-    │   │   ├── backup.go          # Backup operations (copy, rsync)
-    │   │   ├── setup.go           # Setup operations (symlink, backup existing)
-    │   │   └── diff.go            # Diff generation between source ↔ repo
-    │   ├── git/
-    │   │   └── git.go             # Git operations (status, add, commit, push)
-    │   ├── editor/
-    │   │   └── editor.go          # Editor resolution ($EDITOR / config) & launch
-    │   └── ui/
-    │       ├── app.go             # Root bubbletea Model, view routing, key dispatch
-    │       ├── theme/
-    │       │   └── theme.go       # Colour palette, reusable lipgloss styles
-    │       ├── components/
-    │       │   ├── header.go      # App header/logo with styled title
-    │       │   ├── statusbar.go   # Bottom status bar (context, key hints)
-    │       │   └── selector.go    # Reusable multi-select list (wraps bubbles/list)
-    │       └── views/
-    │           ├── home.go        # Home menu model
-    │           ├── backup.go      # Backup selection + execution model
-    │           ├── setup.go       # Setup selection + execution model
-    │           ├── edit.go        # Edit selection model
-    │           └── diffview.go    # Diff preview viewport model
-    ├── go.mod
-    ├── go.sum
-    ├── .gitignore                 # Ignores binary, vendor, etc.
-    ├── Makefile                   # Build, install, clean targets
-    └── README.md
+dots/
+├── cmd/
+│   └── dots/
+│       ├── main.go               # Entrypoint: flag parsing, init guard, command dispatch
+│       └── main_test.go          # CLI & initialization unit tests
+├── internal/
+│   ├── config/
+│   │   ├── config.go             # TOML configuration loading, saving, validation
+│   │   ├── defaults.go           # Sane fallback config specifications
+│   │   └── config_test.go        # Config unit tests
+│   ├── dotfile/
+│   │   ├── entry.go              # Dotfile Entry struct, relative symlink resolution, streaming equality
+│   │   ├── backup.go             # Safe copy, rsync fallback, atomic writes
+│   │   ├── setup.go              # Symlink setup, hierarchical collision-free backups
+│   │   ├── diff.go               # Unified diff generator & exit code handling
+│   │   ├── discover.go           # Dynamic discovery from $XDG_CONFIG_HOME and $HOME
+│   │   ├── ignore.go             # .dotignore manager, sane defaults, glob matching
+│   │   ├── repo_scan.go          # Repository scanner, flexible spec inference, database refresh
+│   │   ├── remove.go             # Configuration unlinking, repository deletion, git staging
+│   │   └── *_test.go             # Comprehensive dotfile package unit tests
+│   ├── git/
+│   │   ├── git.go                # Git command wrappers (status, add, commit, push)
+│   │   ├── remote.go             # Remote repository URL parser & clone target resolution
+│   │   └── remote_test.go        # Remote cloning unit tests
+│   ├── editor/
+│   │   └── editor.go             # Editor resolution ($EDITOR, $VISUAL, PATH lookup)
+│   └── ui/
+│       ├── app.go                # Root Bubble Tea model, view routing, transition animation
+│       ├── theme/
+│       │   └── theme.go          # Consistent lipgloss palette, typography, file icons
+│       ├── components/
+│       │   ├── header.go         # Responsive header with repo status and breadcrumbs
+│       │   ├── statusbar.go      # Sticky bottom status bar with navigation shortcuts
+│       │   └── selector.go       # Searchable, filterable multi-select list component
+│       └── views/
+│           ├── home.go           # Main dashboard and navigation
+│           ├── backup.go         # Backup selection and execution
+│           ├── setup.go          # Symlink setup and verification
+│           ├── edit.go           # Config list filtering and editor execution
+│           ├── browse.go         # In-TUI filesystem browser
+│           ├── add_config.go     # Dynamic system config discovery and manual registration
+│           ├── remove.go         # Safe unlinking and repository cleanup
+│           ├── diffview.go       # Scrollable diff viewer
+│           └── wizard.go         # First-time interactive setup wizard
+├── Makefile                      # Build, test, and install automation
+└── go.mod
 ```
 
 ---
 
-## 4. Data Model
+## 5. Data Model & Configuration
 
-### DotfileEntry
-
-The core abstraction — represents a single managed config:
+### Data Structures
 
 ```go
-type SyncMethod int
-
-const (
-    SyncCopy  SyncMethod = iota // Single file: cp
-    SyncRsync                   // Directory: rsync -a --delete
-)
-
-type DotfileEntry struct {
-    Name       string     // Display name: "nvim", "tmux", "ghostty", etc.
-    RepoPath   string     // Relative path within dotfiles repo: "nvim", "tmux/tmux.conf"
-    SystemPath string     // Absolute path on system: "~/.config/nvim", "~/.tmux.conf"
-    AltPaths   []string   // Fallback system paths (ghostty, aria2)
-    Method     SyncMethod // Copy or Rsync
-    IsDir      bool       // Whether this is a directory config
+type DotfileSpec struct {
+    Name       string   `toml:"name"`        // Identifier: "nvim", "tmux", "alacritty"
+    RepoPath   string   `toml:"repo_path"`   // Relative path within repository
+    SystemPath string   `toml:"system_path"` // Target system path (~/.config/nvim, ~/.tmux.conf)
+    AltPaths   []string `toml:"alt_paths"`   // Alternative fallback system paths
+    Method     string   `toml:"method"`      // "copy" (file) or "rsync" (directory)
+    IsDir      bool     `toml:"is_dir"`      // File or directory indicator
 }
 ```
 
-### Default Registry
-
-Hardcoded from your current `backup.sh` / `setup.sh`, overridable via config:
-
-| Name | Repo Path | System Path | Alt Paths | Method | IsDir |
-|------|-----------|-------------|-----------|--------|-------|
-| ghostty | `ghostty/config.ghostty` | `~/.config/ghostty/config` | `~/.config/ghostty/config.ghostty` | Copy | No |
-| kitty | `kitty/kitty.conf` | `~/.config/kitty/kitty.conf` | — | Copy | No |
-| tmux | `tmux/tmux.conf` | `~/.tmux.conf` | — | Copy | No |
-| clang-format | `clang-format/.clang-format` | `~/.clang-format` | — | Copy | No |
-| aria2 | `aria2/aria2.conf` | `~/.config/aria2/aria2.conf` | `~/aria2.conf` | Copy | No |
-| nvim | `nvim` | `~/.config/nvim` | — | Rsync | Yes |
-| doom | `doom` | `~/.config/doom` | — | Rsync | Yes |
-| fish | `fish` | `~/.config/fish` | — | Rsync | Yes |
-
----
-
-## 5. Config File
-
-Location: `~/.config/dots/config.toml`
+### Configuration File (`~/.config/dots/config.toml`)
 
 ```toml
-# Editor to use for editing dotfiles
-# Respects $EDITOR env var as fallback
+# Editor command (falls back to $EDITOR, $VISUAL, or standard system editors)
 editor = "nvim"
 
-# Path to the dotfiles repository
-repo_path = "~/Documents/dotfiles"
+# Absolute path to dotfiles repository
+repo_path = "~/dotfiles"
 
-# Git settings
 [git]
-auto_commit = false     # If true, skip the interactive git prompt
-auto_push = false       # If true, push after commit automatically
-commit_prefix = ""      # Optional prefix for commit messages
+auto_commit = false      # Automatically commit after backup without prompting
+auto_push = false        # Automatically push commits to remote
+commit_prefix = ""       # Optional prefix for commit messages
 
-# Custom dotfile entries (extends the built-in registry)
-# Uncomment and modify to add your own:
-#
-# [[dotfiles]]
-# name = "hyprland"
-# repo_path = "hyprland"
-# system_path = "~/.config/hypr"
-# method = "rsync"       # "copy" or "rsync"
-# is_dir = true
+# Tracked dotfile configurations
+[[dotfiles]]
+name = "nvim"
+repo_path = "nvim"
+system_path = "~/.config/nvim"
+method = "rsync"
+is_dir = true
+
+[[dotfiles]]
+name = "tmux"
+repo_path = "tmux.conf"
+system_path = "~/.tmux.conf"
+method = "copy"
+is_dir = false
 ```
-
-The config file is **optional** — sensible defaults work out of the box. Created on first run if it doesn't exist.
 
 ---
 
-## 6. Library Stack
+## 6. Sane Ignore Defaults (`.dotignore`)
 
-| Library | Version | Import Path | Purpose |
-|---------|---------|-------------|---------|
-| **bubbletea** | v2 | `charm.land/bubbletea/v2` | TUI framework (Elm architecture) |
-| **bubbles** | v2 | `charm.land/bubbles/v2/*` | Components: list, viewport, spinner, help, key |
-| **lipgloss** | v2 | `charm.land/lipgloss/v2` | Styling, layout, borders, colours |
-| **huh** | v2 | `charm.land/huh/v2` | Confirm prompts (git commit y/n) |
-| **log** | v2 | `charm.land/log/v2` | Styled terminal logging (non-TUI output) |
-| **cobra** | — | `github.com/spf13/cobra` | CLI arg parsing (subcommands, flags) |
-| **go-toml** | — | `github.com/pelletier/go-toml/v2` | Config file parsing |
-
-> [!NOTE]
-> If the v2 vanity imports (`charm.land/...`) cause issues during `go mod tidy`, we'll fall back to the `github.com/charmbracelet/...` v1 paths which are stable and well-documented. The architecture is the same either way.
-
----
-
-## 7. Visual Design
-
-### Colour Palette
-
-A custom palette designed for dark terminals — rich and modern without being tied to a specific theme:
+Repositories may contain documentation, build artifacts, and development metadata that should not be symlinked to the system. `dots` provides sane defaults:
 
 ```
-Primary     #7C3AED  (violet)     — headers, selected items, active borders
-Secondary   #06B6D4  (cyan)       — secondary highlights, status indicators
-Accent      #F59E0B  (amber)      — warnings, attention markers
-Success     #10B981  (emerald)    — success states, additions in diffs
-Error       #EF4444  (red)        — errors, deletions in diffs
-Muted       #6B7280  (gray)       — disabled items, secondary text
-Surface     #1F2937  (dark gray)  — card backgrounds, borders
-Text        #F9FAFB  (off-white)  — primary text
-Subtle      #9CA3AF  (mid-gray)   — descriptions, help text
+.git
+.git*
+.github
+.dotignore
+README*
+LICENSE*
+LICENCE*
+Makefile*
+Dockerfile*
+go.mod
+go.sum
+bin/
+build/
+dots
+*.tar.gz
+*.bak
 ```
 
-### Layout Principles
-
-- **Consistent framing**: Every view has a styled header + status bar footer
-- **Rounded borders** on content panels (`lipgloss.RoundedBorder()`)
-- **Generous padding**: 1-2 cells padding inside panels, no cramped text
-- **Aligned columns**: Names and paths aligned in selection lists
-- **Smooth transitions**: Spinner animations during operations
-- **Status indicators**: Unicode symbols (✓ ✗ 🔗 📄 ∅) for at-a-glance state
-
-### Logo / Header
-
-```
-     ·  ·
-  ╺━━━━━━━╸
-    d o t s
-  ╺━━━━━━━╸
-     ·  ·
-```
-
-A minimal, styled ASCII header rendered with lipgloss — shown on the home view.
-
----
-
-## 8. Key Interactions & Keybindings
-
-### Global
-| Key | Action |
-|-----|--------|
-| `q` / `ctrl+c` | Quit |
-| `esc` | Back to previous view |
-| `?` | Toggle help |
-
-### Selection Views (Backup / Setup)
-| Key | Action |
-|-----|--------|
-| `↑/k` | Move up |
-| `↓/j` | Move down |
-| `space` | Toggle item selection |
-| `a` | Toggle all |
-| `enter` | Proceed with selected |
-| `/` | Filter items |
-
-### Diff Preview
-| Key | Action |
-|-----|--------|
-| `↑/k` | Scroll up |
-| `↓/j` | Scroll down |
-| `enter` | Confirm & execute |
-| `esc` | Cancel & go back |
-
----
-
-## 9. Implementation Phases
-
-### Phase 1 — Foundation
-- [ ] Project scaffold: `go.mod`, directory structure, Makefile
-- [ ] Config file loading with defaults
-- [ ] DotfileEntry registry and path resolution
-- [ ] CLI parsing with cobra (subcommands: `backup`, `setup`, `edit`)
-- [ ] Theme and base lipgloss styles
-- [ ] `git init` + initial conventional commit
-
-### Phase 2 — Edit Feature
-- [ ] Edit view: single-select list of configs
-- [ ] Editor resolution (`$EDITOR` → config → `nvim`)
-- [ ] Editor launch (suspend TUI, exec editor, resume)
-- [ ] Direct `dots edit <name>` CLI path (no TUI)
-
-### Phase 3 — Backup Feature
-- [ ] Backup view: multi-select with status indicators
-- [ ] Diff generation (compare system ↔ repo)
-- [ ] Diff preview viewport with syntax coloring
-- [ ] Backup execution (safe_copy / rsync mirroring backup.sh)
-- [ ] Git operations: status check, add, commit, push
-- [ ] Interactive git prompt via huh confirm
-
-### Phase 4 — Setup Feature
-- [ ] Setup view: multi-select with state indicators
-- [ ] Preview: show what will be linked (source → dest)
-- [ ] Setup execution (symlink creation mirroring setup.sh)
-- [ ] Existing config backup to timestamped directory
-
-### Phase 5 — Polish
-- [ ] Logo/header component
-- [ ] Status bar with context-aware hints
-- [ ] Error handling and styled error display
-- [ ] Loading spinners during operations
-- [ ] README.md for the dots project
-- [ ] `make install` target (copies binary to `~/.local/bin`)
-
----
-
-## 10. Conventional Commits Plan
-
-Every phase will produce commits following the convention:
-
-```
-feat: scaffold project structure with go.mod and directory layout
-feat(config): add TOML config loading with sensible defaults
-feat(dotfile): add entry registry with path resolution
-feat(cli): add cobra CLI with backup/setup/edit subcommands
-feat(ui): add theme package with colour palette and base styles
-feat(ui): add home view with main menu
-feat(edit): add edit view with editor launch
-feat(edit): add direct edit via CLI args
-feat(backup): add backup selection view with status indicators
-feat(backup): add diff generation and preview viewport
-feat(backup): add backup execution with copy and rsync
-feat(git): add interactive commit and push prompt
-feat(setup): add setup selection view with state indicators
-feat(setup): add setup execution with symlink creation
-style(ui): add logo header and status bar polish
-chore: add Makefile with build and install targets
-docs: add README with usage and configuration guide
-```
+Users can customize rules in `<repo>/.dotignore`, including negations (e.g. `!Makefile` or `!bin/`).

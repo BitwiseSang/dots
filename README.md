@@ -1,24 +1,46 @@
-# dots ╺━━━━━━━╸
+# dots
 
-A beautiful, modern terminal user interface (TUI) and CLI tool for managing your dotfiles. Built with [Charmbracelet](https://charm.sh) tools: [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Bubbles](https://github.com/charmbracelet/bubbles), and [Lip Gloss](https://github.com/charmbracelet/lipgloss).
-
----
-
-## ✨ Features
-
-- 🎨 **Beautiful Terminal UI**: Clean typography, elegant borders, responsive layouts, and modern color palette.
-- 📦 **Selective Backups**: Choose exactly which configurations to back up from your system into the repository.
-- 🔍 **Diff Previews**: Inspect colored, unified diffs before confirming any backup or setup operation.
-- 🔗 **Selective Setup**: Safely symlink configs from your repo to your system, automatically archiving existing configs into timestamped backups.
-- ✏️ **Frictionless Editing**:
-  - **Direct CLI**: Jump straight into editing any config: `dots edit nvim`, `dots edit tmux`, etc. No need to `cd` or remember long paths.
-  - **Interactive TUI**: Browse all configs in a menu and open them with a keystroke; editor suspends the TUI and resumes seamlessly upon exit.
-- 🌿 **Git Integration**: Interactive prompt to commit with timestamped metadata and push after backups.
-- ⚙️ **Configurable**: Fully customizable via `~/.config/dots/config.toml` (editor, repository path, custom dotfile entries).
+A beautiful, modern terminal user interface (TUI) and CLI tool for managing your
+dotfiles. Built with [Charmbracelet](https://charm.sh) tools: [Bubble
+Tea](https://github.com/charmbracelet/bubbletea),
+[Bubbles](https://github.com/charmbracelet/bubbles), and [Lip
+Gloss](https://github.com/charmbracelet/lipgloss).
 
 ---
 
-## 🚀 Installation
+## Features
+
+- **Beautiful Terminal UI**: Clean typography, elegant borders, responsive
+  layouts, and modern color palette.
+- **Interactive Setup Wizard**: Initialize with an existing local repository or
+  clone directly from GitHub/Git URLs with intelligent branch and ignore
+  configuration (`dots init`).
+- **Selective Backups**: Choose exactly which configurations to back up from
+  your system into the repository, complete with streaming diff checks.
+- **Selective Setup**: Safely symlink configs from your repo to your system,
+  automatically archiving existing configs into collision-free timestamped
+  backups.
+- **Diff Previews**: Inspect colored, unified diffs before confirming any backup
+  or setup operation.
+- **Frictionless Editing**:
+  - **Direct CLI**: Jump straight into editing any config: `dots edit nvim`,
+    `dots edit tmux`, etc.
+  - **Interactive TUI**: Browse configs with fuzzy search and open them in
+    `$EDITOR`; resumes the TUI smoothly on exit.
+- **Dynamic Discovery & Registration**: Automatically discover user configs from
+  `$XDG_CONFIG_HOME` and `$HOME` or register custom paths manually (`dots add`).
+- **Safe Removal**: Unlink system symlinks safely or remove files from the
+  repository with automated git commits (`dots remove`).
+- **Auto-Discovery & Refresh**: Scan repository entries against `.dotignore`
+  rules and update tracked configs with one command (`dots refresh`).
+- **Git Integration**: Interactive prompt to commit with timestamped metadata
+  and push after changes.
+- **Zero Hardcoding**: Clean, generic design that adapts to any system without
+  assuming personal directory structures or application preferences.
+
+---
+
+## Installation
 
 ### Using Make
 
@@ -27,15 +49,27 @@ cd dots
 make install
 ```
 
-This compiles the binary and copies it to `~/.local/bin/dots`. Ensure `~/.local/bin` is in your `$PATH`.
+This compiles the binary and copies it to `~/.local/bin/dots`. Ensure
+`~/.local/bin` is in your `$PATH`.
 
 ---
 
-## 📖 Usage
+## Usage
+
+### Quick Start
+
+On a fresh system or new installation, run the setup wizard:
+
+```bash
+dots init
+```
+
+The wizard will guide you through setting up or cloning your dotfiles
+repository, selecting configurations, and setting `.dotignore` rules.
 
 ### Interactive TUI
 
-Launch the full interactive interface:
+Launch the full interactive dashboard:
 
 ```bash
 dots
@@ -47,20 +81,28 @@ Jump directly to a specific view within the TUI:
 dots backup   # Open backup view
 dots setup    # Open setup view
 dots edit     # Open edit menu
+dots add      # Open add & discovery view
+dots remove   # Open removal view
 ```
 
-### Direct Editing (Bypass TUI)
-
-Open any config directly in your editor without launching the TUI:
+### Direct CLI Commands (Bypass TUI)
 
 ```bash
-dots edit nvim          # Opens ~/.config/nvim in $EDITOR
-dots edit tmux          # Opens ~/.tmux.conf in $EDITOR
-dots edit ghostty       # Opens Ghostty config in $EDITOR
-dots edit fish          # Opens Fish config in $EDITOR
-```
+# Editing
+dots edit <name>                   # Open config path directly in $EDITOR (e.g. dots edit nvim)
 
-If you specify an unknown config name, `dots` prints the list of available dotfiles.
+# Setup & Backup
+dots setup --all                   # Symlink all tracked dotfiles
+dots backup --all                  # Back up all tracked dotfiles into the repo
+
+# Adding & Scanning
+dots refresh                       # Scan repository for untracked configs and add them
+
+# Removal
+dots remove <name>                 # Interactive removal prompt
+dots remove <name> --symlink-only  # Unlink system symlink only (keep repo files)
+dots remove <name> --all -y        # Unlink symlink, delete from repo, and untrack
+```
 
 ### Command-Line Flags
 
@@ -76,20 +118,24 @@ Flags:
 
 ---
 
-## ⌨️ Keybindings
+## Keybindings
 
 ### Global
-- `q` / `Ctrl+C`: Quit
-- `Esc`: Go back to previous menu / view
 
-### Selection Views (Backup / Setup)
+- `q` / `Ctrl+C`: Quit
+- `Esc`: Go back to previous view / menu
+
+### Selection Views (Backup / Setup / Add)
+
 - `↑` / `k`: Move up
 - `↓` / `j`: Move down
 - `Space`: Toggle selection of current item
 - `a`: Select / deselect all items
+- `/`: Filter / search list
 - `Enter`: Proceed to preview / execute
 
 ### Diff Preview
+
 - `↑` / `k`: Scroll up
 - `↓` / `j`: Scroll down
 - `Enter`: Confirm and execute
@@ -97,50 +143,44 @@ Flags:
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
-Optional configuration file located at `~/.config/dots/config.toml`:
+Configuration is stored in `~/.config/dots/config.toml`:
 
 ```toml
-# Editor command (falls back to $EDITOR, then "nvim")
+# Editor command (falls back to $EDITOR, $VISUAL, or standard system editors)
 editor = "nvim"
 
 # Path to your dotfiles repository
-repo_path = "~/Documents/dotfiles"
+repo_path = "~/dotfiles"
 
 [git]
 auto_commit = false     # Automatically commit on backup without prompt
 auto_push = false       # Automatically push after commit
 commit_prefix = ""      # Optional commit message prefix
 
-# Optional: Add custom dotfile entries
-# [[dotfiles]]
-# name = "hyprland"
-# repo_path = "hyprland"
-# system_path = "~/.config/hypr"
-# method = "rsync"       # "copy" or "rsync"
-# is_dir = true
+# Tracked dotfile entries
+[[dotfiles]]
+name = "nvim"
+repo_path = "nvim"
+system_path = "~/.config/nvim"
+method = "rsync"       # "copy" or "rsync"
+is_dir = true
+
+[[dotfiles]]
+name = "tmux"
+repo_path = "tmux.conf"
+system_path = "~/.tmux.conf"
+method = "copy"
+is_dir = false
 ```
 
 ---
 
-## 🏗️ Architecture
+## Ignore Patterns (`.dotignore`)
 
-```
-dots/
-├── cmd/
-│   └── dots/
-│       └── main.go          # Cobra CLI & TUI entrypoint
-├── internal/
-│   ├── config/              # TOML config loader & default registry
-│   ├── dotfile/             # Entry models, backup, setup, diff engine
-│   ├── editor/              # Editor launcher and process manager
-│   ├── git/                 # Git status, commit, and push routines
-│   └── ui/
-│       ├── app.go           # Root Bubble Tea model & router
-│       ├── theme/           # Lip Gloss palette & styles
-│       ├── components/      # Reusable header, status bar, selector
-│       └── views/           # Home, Backup, Setup, and Edit views
-├── Makefile
-└── go.mod
-```
+Create a `.dotignore` file in your repository root to ignore non-dotfile files.
+Sane defaults (`.git`, `README*`, `LICENSE*`, `Makefile*`, `bin/`, `build/`,
+`dots`, `*.tar.gz`, etc.) are applied automatically.
+
+You can add custom patterns or negate defaults using `!` (e.g. `!Makefile`).

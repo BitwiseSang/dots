@@ -77,7 +77,7 @@ func TestWizardModelNavigationAndHeight(t *testing.T) {
 		t.Fatalf("expected step to be wizardStepDiscover, got %v", m.step)
 	}
 
-	// Verify only repo configs (nvim, fish, tmux) are present in selector, NOT 110 host configs!
+	// Verify only repo configs (nvim, fish, tmux) are present in selector
 	if len(m.repoSpecs) != 3 {
 		t.Errorf("expected exactly 3 repo configs, got %d", len(m.repoSpecs))
 	}
