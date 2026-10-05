@@ -87,6 +87,10 @@ func (m EditModel) Init() tea.Cmd {
 	return nil
 }
 
+func (m EditModel) IsSearching() bool {
+	return m.filtering
+}
+
 func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case TickMsg:

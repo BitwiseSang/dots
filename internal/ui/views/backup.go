@@ -114,6 +114,10 @@ func (m BackupModel) Init() tea.Cmd {
 	return m.spinner.Tick
 }
 
+func (m BackupModel) IsSearching() bool {
+	return m.phase == phaseSelect && m.selector.IsSearching()
+}
+
 type backupDoneMsg []dotfile.BackupResult
 type gitDoneMsg struct{}
 

@@ -150,6 +150,10 @@ func (m BrowseModel) Init() tea.Cmd {
 	return nil
 }
 
+func (m BrowseModel) IsSearching() bool {
+	return m.filtering
+}
+
 func (m *BrowseModel) SetDirectory(path string) tea.Cmd {
 	if fi, err := os.Stat(path); err == nil && fi.IsDir() {
 		m.currentDir = path

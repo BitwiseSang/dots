@@ -136,11 +136,18 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	cfg := *DefaultConfig()
+	var raw map[string]any
+	_ = toml.Unmarshal(data, &raw)
+	_, hasDotfiles := raw["dotfiles"]
+
+	cfg := Config{
+		Editor:   "nvim",
+		RepoPath: "~/Documents/dotfiles",
+	}
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	if len(cfg.Dotfiles) == 0 {
+	if !hasDotfiles {
 		cfg.Dotfiles = DefaultDotfiles()
 	}
 	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
@@ -148,8 +155,21 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-func Save(cfg *Config) error {
+// SaveToPath serializes and writes the configuration to a specific file path.
+func SaveToPath(cfg *Config, targetPath string) error {
 	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
+	expanded := ExpandPath(targetPath)
+	if err := os.MkdirAll(filepath.Dir(expanded), 0755); err != nil {
+		return err
+	}
+	data, err := toml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(expanded, data, 0644)
+}
+
+func Save(cfg *Config) error {
 	if err := EnsureConfigDir(); err != nil {
 		return err
 	}
@@ -158,13 +178,7 @@ func Save(cfg *Config) error {
 		return err
 	}
 	configPath := filepath.Join(home, ".config", "dots", "config.toml")
-
-	data, err := toml.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(configPath, data, 0644)
+	return SaveToPath(cfg, configPath)
 }
 
 // ConfigExists reports whether ~/.config/dots/config.toml already exists.
@@ -190,16 +204,39 @@ func (c *Config) AddDotfile(spec DotfileSpec) bool {
 	return true // added new
 }
 
+// RemoveDotfile removes a spec from cfg.Dotfiles by name (case-insensitive).
+// Returns true if an entry was found and removed, false otherwise.
+func (c *Config) RemoveDotfile(name string) bool {
+	for i, d := range c.Dotfiles {
+		if strings.EqualFold(d.Name, name) {
+			c.Dotfiles = append(c.Dotfiles[:i], c.Dotfiles[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // LoadFromPath loads a Config from an explicit file path.
 func LoadFromPath(configPath string) (*Config, error) {
 	data, err := os.ReadFile(ExpandPath(configPath))
 	if err != nil {
 		return nil, err
 	}
-	cfg := *DefaultConfig()
+	var raw map[string]any
+	_ = toml.Unmarshal(data, &raw)
+	_, hasDotfiles := raw["dotfiles"]
+
+	cfg := Config{
+		Editor:   "nvim",
+		RepoPath: "~/Documents/dotfiles",
+	}
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	if !hasDotfiles {
+		cfg.Dotfiles = DefaultDotfiles()
+	}
+	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
 	return &cfg, nil
 }
 

@@ -29,6 +29,7 @@ type AppModel struct {
 	edit        views.EditModel
 	browse      views.BrowseModel
 	addConfig   views.AddConfigModel
+	remove      views.RemoveModel
 	wizard      views.WizardModel
 	cfg         *config.Config
 	entries     []dotfile.Entry
@@ -56,6 +57,7 @@ func NewApp(cfg *config.Config, initialView views.ViewType) AppModel {
 		edit:        views.NewEditModel(entries, cfg),
 		browse:      views.NewBrowseModel(cfg),
 		addConfig:   views.NewAddConfigModel(cfg),
+		remove:      views.NewRemoveModel(entries, cfg),
 		wizard:      views.NewWizardModel(cfg),
 		cfg:         cfg,
 		entries:     entries,
@@ -82,6 +84,7 @@ func (m AppModel) Init() tea.Cmd {
 		m.edit.Init(),
 		m.browse.Init(),
 		m.addConfig.Init(),
+		m.remove.Init(),
 		m.wizard.Init(),
 	)
 }
@@ -118,6 +121,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case views.ViewAddConfig:
 			m.addConfig, cmd = m.addConfig.Update(msg)
 			cmds = append(cmds, cmd)
+		case views.ViewRemove:
+			m.remove, cmd = m.remove.Update(msg)
+			cmds = append(cmds, cmd)
 		case views.ViewWizard:
 			m.wizard, cmd = m.wizard.Update(msg)
 			cmds = append(cmds, cmd)
@@ -141,6 +147,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, childCmd)
 		m.addConfig, childCmd = m.addConfig.Update(msg)
 		cmds = append(cmds, childCmd)
+		m.remove, childCmd = m.remove.Update(msg)
+		cmds = append(cmds, childCmd)
 		m.wizard, childCmd = m.wizard.Update(msg)
 		cmds = append(cmds, childCmd)
 
@@ -156,6 +164,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				isTyping = m.addConfig.IsTyping()
 			} else if m.currentView == views.ViewWizard {
 				isTyping = m.wizard.IsTyping()
+			} else if m.currentView == views.ViewRemove {
+				isTyping = m.remove.IsSearching()
+			} else if m.currentView == views.ViewEdit {
+				isTyping = m.edit.IsSearching()
+			} else if m.currentView == views.ViewBrowse {
+				isTyping = m.browse.IsSearching()
+			} else if m.currentView == views.ViewSetup {
+				isTyping = m.setup.IsSearching()
+			} else if m.currentView == views.ViewBackup {
+				isTyping = m.backup.IsSearching()
 			}
 			if !isTyping {
 				m.quitting = true
@@ -195,6 +213,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
 				m.addConfig, _ = m.addConfig.Update(sizeMsg)
 			}
+		} else if msg.View == views.ViewRemove {
+			m.entries = dotfile.LoadEntries(m.cfg)
+			m.remove = views.NewRemoveModel(m.entries, m.cfg)
+			if m.width > 0 && m.height > 0 {
+				sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
+				m.remove, _ = m.remove.Update(sizeMsg)
+			}
+			initCmd = m.remove.Init()
 		} else if msg.View == views.ViewWizard {
 			m.wizard = views.NewWizardModel(m.cfg)
 			if m.width > 0 && m.height > 0 {
@@ -203,7 +229,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			initCmd = m.wizard.Init()
 		} else if msg.View == views.ViewHome {
-			// Reload entries in case new configs were added
+			// Reload entries in case new configs were added or removed
 			m.entries = dotfile.LoadEntries(m.cfg)
 			savedCursor := m.home.Cursor()
 			if prevView != views.ViewHome {
@@ -215,12 +241,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.backup = views.NewBackupModel(m.entries, m.cfg)
 			m.setup = views.NewSetupModel(m.entries, m.cfg)
 			m.edit = views.NewEditModel(m.entries, m.cfg)
+			m.remove = views.NewRemoveModel(m.entries, m.cfg)
 
 			sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
 			m.home, _ = m.home.Update(sizeMsg)
 			m.backup, _ = m.backup.Update(sizeMsg)
 			m.setup, _ = m.setup.Update(sizeMsg)
 			m.edit, _ = m.edit.Update(sizeMsg)
+			m.remove, _ = m.remove.Update(sizeMsg)
 		}
 		m.springPos = 0.0
 		m.springVel = 0.0
@@ -238,6 +266,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.backup = views.NewBackupModel(m.entries, m.cfg)
 		m.setup = views.NewSetupModel(m.entries, m.cfg)
 		m.edit = views.NewEditModel(m.entries, m.cfg)
+		m.remove = views.NewRemoveModel(m.entries, m.cfg)
 		// Note: m.browse is preserved so directory traversal position is retained!
 
 		sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
@@ -245,6 +274,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.backup, _ = m.backup.Update(sizeMsg)
 		m.setup, _ = m.setup.Update(sizeMsg)
 		m.edit, _ = m.edit.Update(sizeMsg)
+		m.remove, _ = m.remove.Update(sizeMsg)
 		m.browse, _ = m.browse.Update(sizeMsg)
 
 		if m.currentView == views.ViewBrowse {
@@ -272,6 +302,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.ViewAddConfig:
 		m.addConfig, cmd = m.addConfig.Update(msg)
 		cmds = append(cmds, cmd)
+	case views.ViewRemove:
+		m.remove, cmd = m.remove.Update(msg)
+		cmds = append(cmds, cmd)
 	case views.ViewWizard:
 		m.wizard, cmd = m.wizard.Update(msg)
 		cmds = append(cmds, cmd)
@@ -298,6 +331,8 @@ func (m AppModel) View() string {
 		return m.browse.View()
 	case views.ViewAddConfig:
 		return m.addConfig.View()
+	case views.ViewRemove:
+		return m.remove.View()
 	case views.ViewWizard:
 		return m.wizard.View()
 	default:

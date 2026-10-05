@@ -41,6 +41,7 @@ var (
 	BackupActiveStyle = lipgloss.NewStyle().Foreground(Secondary).Bold(true)
 	SetupActiveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Bold(true)
 	EditActiveStyle   = lipgloss.NewStyle().Foreground(Pink).Bold(true)
+	RemoveActiveStyle = lipgloss.NewStyle().Foreground(Error).Bold(true)
 
 	// Checkbox icons using Nerd Fonts
 	CheckboxChecked   = lipgloss.NewStyle().Foreground(Success).Bold(true).Render("[]")

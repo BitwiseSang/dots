@@ -75,6 +75,10 @@ func (m SetupModel) Init() tea.Cmd {
 	return m.spinner.Tick
 }
 
+func (m SetupModel) IsSearching() bool {
+	return m.phase == setupPhaseSelect && m.selector.IsSearching()
+}
+
 func (m *SetupModel) Reset(entries []dotfile.Entry) {
 	m.entries = entries
 	m.phase = setupPhaseSelect

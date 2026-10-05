@@ -327,6 +327,31 @@ func (e Entry) BackupStatusLabel() string {
 	}
 }
 
+// RemoveStatus returns the status relevant for the remove view.
+func (e Entry) RemoveStatus() Status {
+	repoPath := e.AbsRepoPath()
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		return StatusRepoMissing
+	}
+	if e.IsLinked() {
+		return StatusLinked
+	}
+	return StatusUnlinked
+}
+
+func (e Entry) RemoveStatusLabel() string {
+	switch e.RemoveStatus() {
+	case StatusLinked:
+		return " Linked"
+	case StatusUnlinked:
+		return "⊘ Unlinked"
+	case StatusRepoMissing:
+		return "∅ Repo missing"
+	default:
+		return "? Unknown"
+	}
+}
+
 func (e Entry) StatusLabel() string {
 	switch e.CheckStatus() {
 	case StatusInSync:

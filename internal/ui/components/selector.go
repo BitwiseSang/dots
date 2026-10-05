@@ -134,6 +134,11 @@ func (s *Selector) recomputeFiltered() {
 	s.cursor = s.firstEnabled()
 }
 
+// IsSearching reports whether the selector is currently in search/filter input mode.
+func (s Selector) IsSearching() bool {
+	return s.filtering
+}
+
 func (s Selector) Init() tea.Cmd {
 	return nil
 }

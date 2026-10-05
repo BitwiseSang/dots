@@ -18,6 +18,7 @@ const (
 	ViewEdit
 	ViewBrowse
 	ViewAddConfig
+	ViewRemove
 	ViewWizard
 )
 
@@ -52,6 +53,7 @@ func NewHomeModel(repoPath string) HomeModel {
 			{key: "s", icon: theme.IconSetup, title: "Setup", desc: "Symlink repo configs to system", view: ViewSetup},
 			{key: "e", icon: theme.IconEdit, title: "Edit", desc: "Open configs in your editor", view: ViewEdit},
 			{key: "a", icon: "", title: "Add", desc: "Track a new configuration", view: ViewAddConfig},
+			{key: "r", icon: theme.IconRemove, title: "Remove", desc: "Unlink or delete tracked configs", view: ViewRemove},
 			{key: "f", icon: theme.IconBrowse, title: "Browse", desc: "Explore filesystem & track configs", view: ViewBrowse},
 		},
 		cursor:   0,
@@ -118,6 +120,9 @@ func (m HomeModel) Update(msg tea.Msg) (HomeModel, tea.Cmd) {
 		case "a":
 			m.SetCursorForView(ViewAddConfig)
 			return m, func() tea.Msg { return NavigateMsg{View: ViewAddConfig} }
+		case "r":
+			m.SetCursorForView(ViewRemove)
+			return m, func() tea.Msg { return NavigateMsg{View: ViewRemove} }
 		case "f":
 			m.SetCursorForView(ViewBrowse)
 			return m, func() tea.Msg { return NavigateMsg{View: ViewBrowse} }

@@ -14,6 +14,7 @@ const (
 	IconSetup       = ""
 	IconEdit        = ""
 	IconBrowse      = ""
+	IconRemove      = ""
 	IconQuit        = ""
 	IconCursor      = "❯"
 	IconDotsCluster = ":::"

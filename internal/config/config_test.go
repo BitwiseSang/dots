@@ -85,3 +85,40 @@ func TestAddDotfile(t *testing.T) {
 		t.Errorf("expected updated system path")
 	}
 }
+
+func TestRemoveDotfile(t *testing.T) {
+	cfg := &Config{
+		Dotfiles: []DotfileSpec{
+			{Name: "nvim", RepoPath: "nvim", SystemPath: "~/.config/nvim"},
+			{Name: "fish", RepoPath: "fish", SystemPath: "~/.config/fish"},
+			{Name: "tmux", RepoPath: "tmux", SystemPath: "~/.tmux.conf"},
+		},
+	}
+
+	// Remove middle element (case-insensitive)
+	if !cfg.RemoveDotfile("FISH") {
+		t.Errorf("expected true when removing existing dotfile")
+	}
+	if len(cfg.Dotfiles) != 2 {
+		t.Fatalf("expected 2 dotfiles left, got %d", len(cfg.Dotfiles))
+	}
+	if cfg.Dotfiles[0].Name != "nvim" || cfg.Dotfiles[1].Name != "tmux" {
+		t.Errorf("unexpected dotfiles remaining: %+v", cfg.Dotfiles)
+	}
+
+	// Remove non-existent
+	if cfg.RemoveDotfile("ghostty") {
+		t.Errorf("expected false when removing non-existent dotfile")
+	}
+	if len(cfg.Dotfiles) != 2 {
+		t.Fatalf("expected 2 dotfiles, got %d", len(cfg.Dotfiles))
+	}
+
+	// Remove remaining
+	if !cfg.RemoveDotfile("nvim") || !cfg.RemoveDotfile("tmux") {
+		t.Errorf("failed to remove remaining dotfiles")
+	}
+	if len(cfg.Dotfiles) != 0 {
+		t.Errorf("expected 0 dotfiles, got %d", len(cfg.Dotfiles))
+	}
+}
