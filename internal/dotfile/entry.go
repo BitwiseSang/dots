@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/BitwiseSang/dots/internal/config"
+	"github.com/BitwiseSang/dots/internal/git"
 )
 
 type SyncMethod int
@@ -84,6 +85,91 @@ func (e Entry) AbsRepoPath() string {
 	return filepath.Join(e.repoRoot, e.RepoPath)
 }
 
+// dirsEqual recursively compares all files and subdirectories between two directory trees.
+// Returns true only if file counts, relative structure, and byte contents match completely.
+func dirsEqual(dir1, dir2 string) bool {
+	files1 := make(map[string]os.FileInfo)
+	_ = filepath.Walk(dir1, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(dir1, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+		files1[rel] = info
+		return nil
+	})
+
+	files2 := make(map[string]os.FileInfo)
+	_ = filepath.Walk(dir2, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(dir2, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+		files2[rel] = info
+		return nil
+	})
+
+	if len(files1) != len(files2) {
+		return false
+	}
+
+	for rel, info1 := range files1 {
+		info2, ok := files2[rel]
+		if !ok {
+			return false
+		}
+		if info1.IsDir() != info2.IsDir() {
+			return false
+		}
+		if !info1.IsDir() {
+			if info1.Size() != info2.Size() {
+				return false
+			}
+			f1, err := os.ReadFile(filepath.Join(dir1, rel))
+			if err != nil {
+				return false
+			}
+			f2, err := os.ReadFile(filepath.Join(dir2, rel))
+			if err != nil {
+				return false
+			}
+			if !bytes.Equal(f1, f2) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// IsLinked returns true if the system path is a symlink pointing to the repository path.
+func (e Entry) IsLinked() bool {
+	sysPath := e.ResolveSystemPath()
+	repoPath := e.AbsRepoPath()
+
+	sysInfo, err := os.Lstat(sysPath)
+	if err == nil && sysInfo.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(sysPath)
+		if err == nil && filepath.Clean(target) == filepath.Clean(repoPath) {
+			return true
+		}
+	}
+	return false
+}
+
+// HasGitChanges returns true if this entry has uncommitted or untracked changes in the git repository.
+func (e Entry) HasGitChanges() bool {
+	if git.IsRepo(e.repoRoot) {
+		hasChanges, _ := git.HasChangesForPath(e.repoRoot, e.RepoPath)
+		return hasChanges
+	}
+	return false
+}
+
 func (e Entry) CheckStatus() Status {
 	sysPath := e.ResolveSystemPath()
 	repoPath := e.AbsRepoPath()
@@ -93,22 +179,27 @@ func (e Entry) CheckStatus() Status {
 		return StatusMissing
 	}
 
-	if sysInfo != nil && sysInfo.Mode()&os.ModeSymlink != 0 {
-		target, err := os.Readlink(sysPath)
-		if err == nil {
-			if filepath.Clean(target) == filepath.Clean(repoPath) {
-				return StatusLinked
-			}
-		}
-	}
-
 	repoInfo, repoErr := os.Stat(repoPath)
 	if repoErr != nil && os.IsNotExist(repoErr) {
 		return StatusRepoMissing
 	}
 
+	if e.IsLinked() {
+		// When linked, check if the repository files have uncommitted git changes
+		if e.HasGitChanges() {
+			return StatusChanged
+		}
+		return StatusLinked
+	}
+
 	if e.IsDir {
 		if sysErr == nil && repoErr == nil && sysInfo.IsDir() && repoInfo.IsDir() {
+			if !dirsEqual(sysPath, repoPath) {
+				return StatusChanged
+			}
+			if e.HasGitChanges() {
+				return StatusChanged
+			}
 			return StatusInSync
 		}
 		return StatusChanged
@@ -124,10 +215,15 @@ func (e Entry) CheckStatus() Status {
 		return StatusChanged
 	}
 
-	if bytes.Equal(sysData, repoData) {
-		return StatusInSync
+	if !bytes.Equal(sysData, repoData) {
+		return StatusChanged
 	}
-	return StatusChanged
+
+	if e.HasGitChanges() {
+		return StatusChanged
+	}
+
+	return StatusInSync
 }
 
 func (e Entry) StatusLabel() string {

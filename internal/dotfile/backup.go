@@ -47,6 +47,12 @@ func Backup(entry Entry) error {
 	sysPath := entry.ResolveSystemPath()
 	repoPath := entry.AbsRepoPath()
 
+	if entry.IsLinked() {
+		// When linked, sysPath is a symlink pointing to repoPath.
+		// The files already reside in repoPath, so filesystem sync is complete.
+		return nil
+	}
+
 	if _, err := os.Stat(sysPath); os.IsNotExist(err) {
 		return fmt.Errorf("system path does not exist: %s", sysPath)
 	}
@@ -64,8 +70,11 @@ func Backup(entry Entry) error {
 		if entry.IsDir && dst[len(dst)-1] != '/' {
 			dst += "/"
 		}
-		cmd := exec.Command("rsync", "-a", "--delete", src, dst)
-		return cmd.Run()
+		cmd := exec.Command("rsync", "-ac", "--delete", src, dst)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("rsync error: %w: %s", err, string(out))
+		}
+		return nil
 	}
 
 	return copyFile(sysPath, repoPath)
@@ -75,13 +84,13 @@ func BackupAll(entries []Entry) []BackupResult {
 	var results []BackupResult
 	for _, entry := range entries {
 		status := entry.CheckStatus()
-		if status == StatusMissing || status == StatusLinked {
-			results = append(results, BackupResult{Entry: entry, Skipped: true})
+		if status == StatusMissing {
+			results = append(results, BackupResult{Entry: entry, Skipped: true, Err: fmt.Errorf("system path missing")})
 			continue
 		}
 
 		err := Backup(entry)
-		results = append(results, BackupResult{Entry: entry, Err: err})
+		results = append(results, BackupResult{Entry: entry, Err: err, Skipped: false})
 	}
 	return results
 }

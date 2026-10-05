@@ -196,16 +196,25 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 }
 
 func (m EditModel) View() string {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+
 	repoPath := ""
 	if m.cfg != nil {
 		repoPath = m.cfg.RepoPath
 	}
-	header := components.Header(m.width, m.height, m.animStep, repoPath)
+	header := components.Header(width, height, m.animStep, repoPath)
 
 	var contentBuilder strings.Builder
 
 	blockWidth := 66
-	padLeft := (m.width - blockWidth) / 2
+	padLeft := (width - blockWidth) / 2
 	if padLeft < 2 {
 		padLeft = 2
 	}
@@ -279,7 +288,7 @@ func (m EditModel) View() string {
 		statusHint = "enter open • / search • tab browse • esc home • q quit"
 	}
 
-	statusBar := components.StatusBar("Edit", statusHint, m.width)
+	statusBar := components.StatusBar("Edit", statusHint, width)
 	topBlock := lipgloss.JoinVertical(lipgloss.Top, header, content)
-	return components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
+	return components.PlacePinnedStatusBar(topBlock, statusBar, height)
 }

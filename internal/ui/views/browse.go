@@ -338,14 +338,23 @@ func (m BrowseModel) Update(msg tea.Msg) (BrowseModel, tea.Cmd) {
 }
 
 func (m BrowseModel) View() string {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+
 	repoPath := ""
 	if m.cfg != nil {
 		repoPath = m.cfg.RepoPath
 	}
-	header := components.Header(m.width, m.height, m.animStep, repoPath)
+	header := components.Header(width, height, m.animStep, repoPath)
 
 	blockWidth := 66
-	padLeft := (m.width - blockWidth) / 2
+	padLeft := (width - blockWidth) / 2
 	if padLeft < 2 {
 		padLeft = 2
 	}
@@ -462,7 +471,7 @@ func (m BrowseModel) View() string {
 		statusHint = "enter open • a track • / search • o nvim • h parent • tab edit • q quit"
 	}
 
-	statusBar := components.StatusBar("Browse", statusHint, m.width)
+	statusBar := components.StatusBar("Browse", statusHint, width)
 	topBlock := lipgloss.JoinVertical(lipgloss.Top, header, content)
-	return components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
+	return components.PlacePinnedStatusBar(topBlock, statusBar, height)
 }

@@ -181,6 +181,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.View == views.ViewEdit {
 			m.entries = dotfile.LoadEntries(m.cfg)
 			m.edit = views.NewEditModel(m.entries, m.cfg)
+			if m.width > 0 && m.height > 0 {
+				sizeMsg := tea.WindowSizeMsg{Width: m.width, Height: m.height}
+				m.edit, _ = m.edit.Update(sizeMsg)
+			}
 		} else if msg.View == views.ViewAddConfig {
 			m.addConfig = views.NewAddConfigModel(m.cfg)
 			if msg.Path != "" {

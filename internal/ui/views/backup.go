@@ -32,11 +32,16 @@ type BackupModel struct {
 	selector  components.Selector
 	vp        viewport.Model
 	spinner   spinner.Model
-	results   []dotfile.BackupResult
-	width     int
-	height    int
-	gitPrompt string
-	animStep  int
+	results      []dotfile.BackupResult
+	width        int
+	height       int
+	gitPrompt    string
+	gitCommitted bool
+	gitCommitMsg string
+	gitCommitErr error
+	gitPushed    bool
+	gitPushErr   error
+	animStep     int
 }
 
 func NewBackupModel(entries []dotfile.Entry, cfg *config.Config) BackupModel {
@@ -74,6 +79,11 @@ func (m *BackupModel) Reset(entries []dotfile.Entry) {
 	m.phase = phaseSelect
 	m.results = nil
 	m.gitPrompt = ""
+	m.gitCommitted = false
+	m.gitCommitMsg = ""
+	m.gitCommitErr = nil
+	m.gitPushed = false
+	m.gitPushErr = nil
 
 	items := make([]components.SelectorItem, len(entries))
 	for i, e := range entries {
@@ -128,20 +138,43 @@ func (m BackupModel) Update(msg tea.Msg) (BackupModel, tea.Cmd) {
 	case backupDoneMsg:
 		m.results = msg
 
-		hasSuccess := false
-		for _, r := range m.results {
-			if r.Err == nil && !r.Skipped {
-				hasSuccess = true
-				break
-			}
-		}
+		repoPath := config.ExpandPath(m.cfg.RepoPath)
+		isGitRepo := git.IsRepo(repoPath)
+		hasGitChanges, _ := git.HasChanges(repoPath)
 
-		if hasSuccess && m.cfg.Git.AutoCommit {
+		if isGitRepo && hasGitChanges {
+			if m.cfg.Git.AutoCommit {
+				commitMsg := git.CommitMessage(m.cfg.Git.CommitPrefix)
+				if err := git.Add(repoPath); err != nil {
+					m.gitCommitErr = err
+					m.phase = phaseDone
+					return m, nil
+				}
+				if err := git.Commit(repoPath, commitMsg); err != nil {
+					m.gitCommitErr = err
+					m.phase = phaseDone
+					return m, nil
+				}
+				m.gitCommitted = true
+				m.gitCommitMsg = commitMsg
+
+				if m.cfg.Git.AutoPush {
+					if err := git.Push(repoPath); err != nil {
+						m.gitPushErr = err
+					} else {
+						m.gitPushed = true
+					}
+				}
+				m.phase = phaseDone
+				return m, nil
+			}
+
 			m.phase = phaseGit
 			m.gitPrompt = "commit"
-		} else {
-			m.phase = phaseDone
+			return m, nil
 		}
+
+		m.phase = phaseDone
 		return m, nil
 
 	case gitDoneMsg:
@@ -206,19 +239,28 @@ func (m BackupModel) Update(msg tea.Msg) (BackupModel, tea.Cmd) {
 		case phaseGit:
 			switch strings.ToLower(msg.String()) {
 			case "y":
+				repoPath := config.ExpandPath(m.cfg.RepoPath)
 				if m.gitPrompt == "commit" {
-					repoPath := config.ExpandPath(m.cfg.RepoPath)
 					msg := git.CommitMessage(m.cfg.Git.CommitPrefix)
 					if err := git.Add(repoPath); err != nil {
+						m.gitCommitErr = err
 						m.phase = phaseDone
 						return m, nil
 					}
 					if err := git.Commit(repoPath, msg); err != nil {
+						m.gitCommitErr = err
 						m.phase = phaseDone
 						return m, nil
 					}
+					m.gitCommitted = true
+					m.gitCommitMsg = msg
+
 					if m.cfg.Git.AutoPush {
-						_ = git.Push(repoPath)
+						if err := git.Push(repoPath); err != nil {
+							m.gitPushErr = err
+						} else {
+							m.gitPushed = true
+						}
 						m.phase = phaseDone
 						return m, nil
 					}
@@ -226,7 +268,11 @@ func (m BackupModel) Update(msg tea.Msg) (BackupModel, tea.Cmd) {
 					return m, nil
 				} else if m.gitPrompt == "push" {
 					repoPath := config.ExpandPath(m.cfg.RepoPath)
-					_ = git.Push(repoPath)
+					if err := git.Push(repoPath); err != nil {
+						m.gitPushErr = err
+					} else {
+						m.gitPushed = true
+					}
 					m.phase = phaseDone
 					return m, nil
 				}
@@ -288,16 +334,25 @@ func (m BackupModel) generateDiff(indices []int) string {
 }
 
 func (m BackupModel) View() string {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+
 	repoPath := ""
 	if m.cfg != nil {
 		repoPath = m.cfg.RepoPath
 	}
-	header := components.Header(m.width, m.height, m.animStep, repoPath)
+	header := components.Header(width, height, m.animStep, repoPath)
 	var content string
 	var statusHint string
 
 	blockWidth := 66
-	padLeft := (m.width - blockWidth) / 2
+	padLeft := (width - blockWidth) / 2
 	if padLeft < 2 {
 		padLeft = 2
 	}
@@ -379,7 +434,10 @@ func (m BackupModel) View() string {
 				statusStr = lipgloss.NewStyle().Foreground(theme.Error).Render(r.Err.Error())
 			} else if r.Skipped {
 				iconStr = lipgloss.NewStyle().Width(3).Foreground(theme.Muted).Render("-")
-				statusStr = lipgloss.NewStyle().Foreground(theme.Muted).Render("Skipped")
+				statusStr = lipgloss.NewStyle().Foreground(theme.Muted).Render("Skipped (missing)")
+			} else if r.Entry.IsLinked() {
+				iconStr = lipgloss.NewStyle().Width(3).Foreground(theme.Secondary).Render(theme.IconLinked)
+				statusStr = lipgloss.NewStyle().Foreground(theme.Secondary).Render("Linked")
 			}
 
 			nameStr := lipgloss.NewStyle().Width(18).Bold(true).Render(r.Entry.Name)
@@ -391,11 +449,39 @@ func (m BackupModel) View() string {
 			)
 			b.WriteString(row + "\n")
 		}
+
+		b.WriteString("\n")
+		if m.gitCommitted {
+			gitIcon := lipgloss.NewStyle().Foreground(theme.Success).Bold(true).Render(theme.IconGit + " ")
+			b.WriteString(indent + gitIcon + lipgloss.NewStyle().Foreground(theme.Success).Bold(true).Render("Git Commit: ") +
+				lipgloss.NewStyle().Foreground(theme.Text).Render(m.gitCommitMsg) + "\n")
+		}
+		if m.gitPushed {
+			pushIcon := lipgloss.NewStyle().Foreground(theme.Success).Bold(true).Render("✓ ")
+			b.WriteString(indent + pushIcon + lipgloss.NewStyle().Foreground(theme.Success).Render("Pushed to remote repository\n"))
+		} else if m.gitPushErr != nil {
+			errIcon := lipgloss.NewStyle().Foreground(theme.Error).Bold(true).Render("✗ ")
+			b.WriteString(indent + errIcon + lipgloss.NewStyle().Foreground(theme.Error).Render(fmt.Sprintf("Push failed: %v\n", m.gitPushErr)))
+		} else if m.gitCommitErr != nil {
+			errIcon := lipgloss.NewStyle().Foreground(theme.Error).Bold(true).Render("✗ ")
+			b.WriteString(indent + errIcon + lipgloss.NewStyle().Foreground(theme.Error).Render(fmt.Sprintf("Git commit failed: %v\n", m.gitCommitErr)))
+		} else if !m.gitCommitted {
+			repoPath := config.ExpandPath(m.cfg.RepoPath)
+			if git.IsRepo(repoPath) {
+				hasChanges, _ := git.HasChanges(repoPath)
+				if !hasChanges {
+					b.WriteString(indent + lipgloss.NewStyle().Foreground(theme.Muted).Render("✓ Git repository is clean (all changes committed)\n"))
+				} else {
+					b.WriteString(indent + lipgloss.NewStyle().Foreground(theme.Muted).Render("ℹ Git commit was skipped by user\n"))
+				}
+			}
+		}
+
 		content = b.String()
 		statusHint = "enter/esc return home • q quit"
 	}
 
-	statusBar := components.StatusBar("Backup", statusHint, m.width)
+	statusBar := components.StatusBar("Backup", statusHint, width)
 	topBlock := lipgloss.JoinVertical(lipgloss.Top, header, content)
-	return components.PlacePinnedStatusBar(topBlock, statusBar, m.height)
+	return components.PlacePinnedStatusBar(topBlock, statusBar, height)
 }
