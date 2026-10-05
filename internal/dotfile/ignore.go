@@ -10,7 +10,6 @@ import (
 )
 
 // DefaultIgnorePatterns returns the default patterns to ignore when scanning a dotfiles repository.
-// Note: Shell files (*.sh) are intentionally omitted from defaults as instructed.
 func DefaultIgnorePatterns() []string {
 	return []string{
 		".git",
@@ -20,6 +19,15 @@ func DefaultIgnorePatterns() []string {
 		"README*",
 		"LICENSE*",
 		"LICENCE*",
+		"Makefile*",
+		"Dockerfile*",
+		"go.mod",
+		"go.sum",
+		"bin/",
+		"build/",
+		"dots",
+		"*.tar.gz",
+		"*.bak",
 	}
 }
 

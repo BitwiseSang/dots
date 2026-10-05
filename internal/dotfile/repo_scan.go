@@ -16,7 +16,33 @@ func inferSpecFromEntry(name string, isDir bool) config.DotfileSpec {
 
 	if isDir {
 		method = "rsync"
-		systemPath = filepath.Join("~/.config", name)
+		if strings.HasPrefix(name, ".") {
+			// Top-level dot-directories map to user's home (e.g. .ssh -> ~/.ssh, .vim -> ~/.vim)
+			systemPath = filepath.Join("~", name)
+		} else {
+			switch strings.ToLower(name) {
+			case "ssh":
+				systemPath = "~/.ssh"
+			case "gnupg":
+				systemPath = "~/.gnupg"
+			default:
+				// If ~/.<name> exists in home directory and ~/.config/<name> does not,
+				// infer ~/.<name> as system target
+				home, err := os.UserHomeDir()
+				if err == nil {
+					homeTarget := filepath.Join(home, "."+name)
+					configTarget := filepath.Join(home, ".config", name)
+					if _, err := os.Stat(homeTarget); err == nil {
+						if _, err := os.Stat(configTarget); os.IsNotExist(err) {
+							systemPath = filepath.Join("~", "."+name)
+						}
+					}
+				}
+				if systemPath == "" {
+					systemPath = filepath.Join("~/.config", name)
+				}
+			}
+		}
 	} else {
 		if strings.HasPrefix(name, ".") {
 			// Top-level files starting with a dot map to user's home directory (e.g. .bashrc -> ~/.bashrc)
@@ -30,6 +56,14 @@ func inferSpecFromEntry(name string, isDir bool) config.DotfileSpec {
 				systemPath = "~/.zshrc"
 			case "bashrc":
 				systemPath = "~/.bashrc"
+			case "bash_profile":
+				systemPath = "~/.bash_profile"
+			case "bash_aliases":
+				systemPath = "~/.bash_aliases"
+			case "zprofile":
+				systemPath = "~/.zprofile"
+			case "zshenv":
+				systemPath = "~/.zshenv"
 			case "gitconfig":
 				systemPath = "~/.gitconfig"
 			case "vimrc":
@@ -40,8 +74,24 @@ func inferSpecFromEntry(name string, isDir bool) config.DotfileSpec {
 				systemPath = "~/.xprofile"
 			case "profile":
 				systemPath = "~/.profile"
+			case "inputrc":
+				systemPath = "~/.inputrc"
+			case "nanorc":
+				systemPath = "~/.nanorc"
 			default:
-				systemPath = filepath.Join("~/.config", name)
+				home, err := os.UserHomeDir()
+				if err == nil {
+					homeTarget := filepath.Join(home, "."+name)
+					configTarget := filepath.Join(home, ".config", name)
+					if _, err := os.Stat(homeTarget); err == nil {
+						if _, err := os.Stat(configTarget); os.IsNotExist(err) {
+							systemPath = filepath.Join("~", "."+name)
+						}
+					}
+				}
+				if systemPath == "" {
+					systemPath = filepath.Join("~/.config", name)
+				}
 			}
 		}
 	}

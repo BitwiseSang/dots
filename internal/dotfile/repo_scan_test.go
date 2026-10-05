@@ -247,3 +247,50 @@ is_dir = true
 	}
 }
 
+func TestInferSpecFromEntry_Flexible(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	// 1. Dot-directories should map to ~/.<name>
+	dotSSH := inferSpecFromEntry(".ssh", true)
+	if dotSSH.SystemPath != filepath.Join("~", ".ssh") {
+		t.Errorf("expected .ssh to map to ~/.ssh, got %s", dotSSH.SystemPath)
+	}
+
+	dotVim := inferSpecFromEntry(".vim", true)
+	if dotVim.SystemPath != filepath.Join("~", ".vim") {
+		t.Errorf("expected .vim to map to ~/.vim, got %s", dotVim.SystemPath)
+	}
+
+	// 2. Known root directories without leading dot
+	sshDir := inferSpecFromEntry("ssh", true)
+	if sshDir.SystemPath != "~/.ssh" {
+		t.Errorf("expected ssh dir to map to ~/.ssh, got %s", sshDir.SystemPath)
+	}
+
+	// 3. Standard application directories map to ~/.config/<name>
+	alacritty := inferSpecFromEntry("alacritty", true)
+	if alacritty.SystemPath != filepath.Join("~/.config", "alacritty") {
+		t.Errorf("expected alacritty to map to ~/.config/alacritty, got %s", alacritty.SystemPath)
+	}
+
+	// 4. Custom directory where ~/.custom exists in home
+	_ = os.MkdirAll(filepath.Join(tempHome, ".custom"), 0755)
+	custom := inferSpecFromEntry("custom", true)
+	if custom.SystemPath != filepath.Join("~", ".custom") {
+		t.Errorf("expected custom to map to ~/.custom when ~/.custom exists, got %s", custom.SystemPath)
+	}
+
+	// 5. Files
+	tmux := inferSpecFromEntry("tmux.conf", false)
+	if tmux.SystemPath != "~/.tmux.conf" {
+		t.Errorf("expected tmux.conf to map to ~/.tmux.conf, got %s", tmux.SystemPath)
+	}
+
+	bashrc := inferSpecFromEntry(".bashrc", false)
+	if bashrc.SystemPath != filepath.Join("~", ".bashrc") {
+		t.Errorf("expected .bashrc to map to ~/.bashrc, got %s", bashrc.SystemPath)
+	}
+}
+
+

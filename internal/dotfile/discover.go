@@ -18,37 +18,53 @@ type DiscoveredConfig struct {
 	AlreadyManaged bool
 }
 
-// CommonCandidate definitions for auto-discovery
-type candidate struct {
-	name   string
-	path   string
-	isDir  bool
-	method string
+// standardHomeDotfiles lists common root-level dotfiles in $HOME to inspect during discovery.
+var standardHomeDotfiles = []string{
+	".bashrc",
+	".bash_profile",
+	".bash_aliases",
+	".zshrc",
+	".zshenv",
+	".zprofile",
+	".tmux.conf",
+	".gitconfig",
+	".vimrc",
+	".profile",
+	".xinitrc",
+	".xprofile",
+	".inputrc",
+	".nanorc",
+	".clang-format",
+	".editorconfig",
 }
 
-var commonCandidates = []candidate{
-	{name: "nvim", path: "~/.config/nvim", isDir: true, method: "rsync"},
-	{name: "fish", path: "~/.config/fish", isDir: true, method: "rsync"},
-	{name: "kitty", path: "~/.config/kitty", isDir: true, method: "rsync"},
-	{name: "ghostty", path: "~/.config/ghostty", isDir: true, method: "rsync"},
-	{name: "alacritty", path: "~/.config/alacritty", isDir: true, method: "rsync"},
-	{name: "tmux", path: "~/.tmux.conf", isDir: false, method: "copy"},
-	{name: "starship", path: "~/.config/starship.toml", isDir: false, method: "copy"},
-	{name: "git", path: "~/.gitconfig", isDir: false, method: "copy"},
-	{name: "zsh", path: "~/.zshrc", isDir: false, method: "copy"},
-	{name: "bash", path: "~/.bashrc", isDir: false, method: "copy"},
-	{name: "hypr", path: "~/.config/hypr", isDir: true, method: "rsync"},
-	{name: "waybar", path: "~/.config/waybar", isDir: true, method: "rsync"},
-	{name: "rofi", path: "~/.config/rofi", isDir: true, method: "rsync"},
-	{name: "dunst", path: "~/.config/dunst", isDir: true, method: "rsync"},
-	{name: "btop", path: "~/.config/btop", isDir: true, method: "rsync"},
-	{name: "fastfetch", path: "~/.config/fastfetch", isDir: true, method: "rsync"},
-	{name: "helix", path: "~/.config/helix", isDir: true, method: "rsync"},
-	{name: "doom", path: "~/.config/doom", isDir: true, method: "rsync"},
+// UserConfigDir resolves the active user configuration directory, honoring $XDG_CONFIG_HOME
+// and falling back to ~/.config.
+func UserConfigDir() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return config.ExpandPath(xdg)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".config")
+	}
+	return ""
 }
 
-// DiscoverSystemConfigs scans the system for existing configuration files and directories,
-// comparing them with the currently managed dotfiles in cfg.
+func cleanConfigName(name string) string {
+	clean := strings.TrimPrefix(name, ".")
+	ext := filepath.Ext(clean)
+	if ext != "" {
+		clean = strings.TrimSuffix(clean, ext)
+	}
+	if clean == "" {
+		return name
+	}
+	return clean
+}
+
+// DiscoverSystemConfigs dynamically scans the system for existing configuration files
+// and directories across $XDG_CONFIG_HOME (default ~/.config) and $HOME, comparing them
+// with currently managed dotfiles in cfg.
 func DiscoverSystemConfigs(cfg *config.Config) []DiscoveredConfig {
 	managedMap := make(map[string]bool)
 	if cfg != nil {
@@ -61,50 +77,65 @@ func DiscoverSystemConfigs(cfg *config.Config) []DiscoveredConfig {
 	seenPaths := make(map[string]bool)
 	var discovered []DiscoveredConfig
 
-	// 1. Check known candidates
-	for _, c := range commonCandidates {
-		abs := config.ExpandPath(c.path)
-		if fi, err := os.Lstat(abs); err == nil {
-			seenPaths[abs] = true
-			isManaged := managedMap[strings.ToLower(c.name)] || managedMap[strings.ToLower(abs)]
-			discovered = append(discovered, DiscoveredConfig{
-				Name:           c.name,
-				SystemPath:     c.path,
-				RepoPath:       c.name,
-				IsDir:          fi.IsDir(),
-				Method:         c.method,
-				AlreadyManaged: isManaged,
-			})
-		}
-	}
+	home, _ := os.UserHomeDir()
 
-	// 2. Scan ~/.config for other top-level directories
-	home, err := os.UserHomeDir()
-	if err == nil {
-		configDir := filepath.Join(home, ".config")
+	// 1. Scan $XDG_CONFIG_HOME (or ~/.config) for user configurations
+	configDir := UserConfigDir()
+	if configDir != "" {
 		if entries, err := os.ReadDir(configDir); err == nil {
 			for _, e := range entries {
 				abs := filepath.Join(configDir, e.Name())
 				if seenPaths[abs] {
 					continue
 				}
-				// Skip hidden or system caches
+				// Skip hidden entries or system caches
 				if strings.HasPrefix(e.Name(), ".") || e.Name() == "pulse" || e.Name() == "dconf" {
 					continue
 				}
 
+				seenPaths[abs] = true
 				method := "copy"
 				if e.IsDir() {
 					method = "rsync"
 				}
 
-				isManaged := managedMap[strings.ToLower(e.Name())] || managedMap[strings.ToLower(abs)]
+				name := cleanConfigName(e.Name())
+				sysPath := abs
+				if home != "" && strings.HasPrefix(abs, home+string(filepath.Separator)) {
+					sysPath = filepath.Join("~", strings.TrimPrefix(abs, home+string(filepath.Separator)))
+				}
+
+				isManaged := managedMap[strings.ToLower(name)] || managedMap[strings.ToLower(abs)]
 				discovered = append(discovered, DiscoveredConfig{
-					Name:           e.Name(),
-					SystemPath:     filepath.Join("~/.config", e.Name()),
+					Name:           name,
+					SystemPath:     sysPath,
 					RepoPath:       e.Name(),
 					IsDir:          e.IsDir(),
 					Method:         method,
+					AlreadyManaged: isManaged,
+				})
+			}
+		}
+	}
+
+	// 2. Scan $HOME for standard root dotfiles
+	if home != "" {
+		for _, file := range standardHomeDotfiles {
+			abs := filepath.Join(home, file)
+			if seenPaths[abs] {
+				continue
+			}
+			if fi, err := os.Lstat(abs); err == nil {
+				seenPaths[abs] = true
+				name := cleanConfigName(file)
+				sysPath := filepath.Join("~", file)
+				isManaged := managedMap[strings.ToLower(name)] || managedMap[strings.ToLower(abs)]
+				discovered = append(discovered, DiscoveredConfig{
+					Name:           name,
+					SystemPath:     sysPath,
+					RepoPath:       file,
+					IsDir:          fi.IsDir(),
+					Method:         "copy",
 					AlreadyManaged: isManaged,
 				})
 			}
