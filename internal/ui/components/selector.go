@@ -48,9 +48,9 @@ func NewSelector(items []SelectorItem) Selector {
 		indices[i] = i
 	}
 
-	return Selector{
+	s := Selector{
 		Items:           items,
-		cursor:          0,
+		cursor:          -1,
 		focused:         true,
 		ActiveColor:     theme.Primary,
 		CheckColor:      theme.Success,
@@ -59,6 +59,59 @@ func NewSelector(items []SelectorItem) Selector {
 		filterQuery:     "",
 		filteredIndices: indices,
 	}
+	s.cursor = s.firstEnabled()
+	return s
+}
+
+func (s Selector) firstEnabled() int {
+	for i := 0; i < len(s.filteredIndices); i++ {
+		if !s.Items[s.filteredIndices[i]].Disabled {
+			return i
+		}
+	}
+	return -1
+}
+
+func (s Selector) nextEnabled(from int) int {
+	if len(s.filteredIndices) == 0 {
+		return -1
+	}
+	start := from + 1
+	if from < 0 {
+		start = 0
+	}
+	for i := start; i < len(s.filteredIndices); i++ {
+		if !s.Items[s.filteredIndices[i]].Disabled {
+			return i
+		}
+	}
+	for i := 0; i <= from && i < len(s.filteredIndices); i++ {
+		if i >= 0 && !s.Items[s.filteredIndices[i]].Disabled {
+			return i
+		}
+	}
+	return -1
+}
+
+func (s Selector) prevEnabled(from int) int {
+	if len(s.filteredIndices) == 0 {
+		return -1
+	}
+	start := from - 1
+	if from >= len(s.filteredIndices) {
+		start = len(s.filteredIndices) - 1
+	}
+	for i := start; i >= 0; i-- {
+		if !s.Items[s.filteredIndices[i]].Disabled {
+			return i
+		}
+	}
+	for i := len(s.filteredIndices) - 1; i > from && i >= 0; i-- {
+		if !s.Items[s.filteredIndices[i]].Disabled {
+			return i
+		}
+	}
+	return -1
 }
 
 func (s *Selector) recomputeFiltered() {
@@ -78,12 +131,7 @@ func (s *Selector) recomputeFiltered() {
 			}
 		}
 	}
-	if s.cursor >= len(s.filteredIndices) {
-		s.cursor = 0
-	}
-	if s.cursor < 0 && len(s.filteredIndices) > 0 {
-		s.cursor = 0
-	}
+	s.cursor = s.firstEnabled()
 }
 
 func (s Selector) Init() tea.Cmd {
@@ -113,7 +161,7 @@ func (s Selector) Update(msg tea.Msg) (Selector, tea.Cmd) {
 				s.searchInput.Blur()
 				return s, nil
 			case "tab":
-				if len(s.filteredIndices) > 0 {
+				if s.cursor >= 0 && s.cursor < len(s.filteredIndices) {
 					actualIdx := s.filteredIndices[s.cursor]
 					if !s.Items[actualIdx].Disabled {
 						s.Items[actualIdx].Selected = !s.Items[actualIdx].Selected
@@ -121,13 +169,13 @@ func (s Selector) Update(msg tea.Msg) (Selector, tea.Cmd) {
 				}
 				return s, nil
 			case "up":
-				if s.cursor > 0 {
-					s.cursor--
+				if prev := s.prevEnabled(s.cursor); prev != -1 {
+					s.cursor = prev
 				}
 				return s, nil
 			case "down":
-				if s.cursor < len(s.filteredIndices)-1 {
-					s.cursor++
+				if next := s.nextEnabled(s.cursor); next != -1 {
+					s.cursor = next
 				}
 				return s, nil
 			}
@@ -157,15 +205,15 @@ func (s Selector) Update(msg tea.Msg) (Selector, tea.Cmd) {
 				return s, nil
 			}
 		case "up", "k":
-			if s.cursor > 0 {
-				s.cursor--
+			if prev := s.prevEnabled(s.cursor); prev != -1 {
+				s.cursor = prev
 			}
 		case "down", "j":
-			if s.cursor < len(s.filteredIndices)-1 {
-				s.cursor++
+			if next := s.nextEnabled(s.cursor); next != -1 {
+				s.cursor = next
 			}
 		case " ":
-			if len(s.filteredIndices) > 0 {
+			if s.cursor >= 0 && s.cursor < len(s.filteredIndices) {
 				actualIdx := s.filteredIndices[s.cursor]
 				if !s.Items[actualIdx].Disabled {
 					s.Items[actualIdx].Selected = !s.Items[actualIdx].Selected
@@ -372,7 +420,10 @@ func (s *Selector) Blur() {
 }
 
 func (s Selector) CursorIndex() int {
-	return s.cursor
+	if s.cursor < 0 || s.cursor >= len(s.filteredIndices) {
+		return -1
+	}
+	return s.filteredIndices[s.cursor]
 }
 
 func (s Selector) IsFiltering() bool {

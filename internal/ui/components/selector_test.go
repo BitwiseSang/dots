@@ -85,3 +85,62 @@ func TestSelectorSearchFiltering(t *testing.T) {
 		t.Errorf("expected view to contain items")
 	}
 }
+
+func TestSelectorCycleEnabledOnly(t *testing.T) {
+	items := []SelectorItem{
+		{Name: "aria2", Desc: "In sync", Disabled: true},
+		{Name: "fish", Desc: "Changed", Disabled: false},
+		{Name: "kitty", Desc: "In sync", Disabled: true},
+		{Name: "alacritty", Desc: "Changed", Disabled: false},
+		{Name: "tmux", Desc: "In sync", Disabled: true},
+	}
+
+	sel := NewSelector(items)
+
+	// Initial cursor should start on first enabled item (fish, index 1)
+	if sel.CursorIndex() != 1 {
+		t.Fatalf("expected initial cursor to be 1 (fish), got %d", sel.CursorIndex())
+	}
+
+	// Press 'j' -> should skip kitty (2) and jump to alacritty (3)
+	sel, _ = sel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if sel.CursorIndex() != 3 {
+		t.Fatalf("expected cursor after 'j' to be 3 (alacritty), got %d", sel.CursorIndex())
+	}
+
+	// Press 'j' again -> should cycle back to fish (1)
+	sel, _ = sel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if sel.CursorIndex() != 1 {
+		t.Fatalf("expected cursor after second 'j' to cycle back to 1 (fish), got %d", sel.CursorIndex())
+	}
+
+	// Press 'k' -> should cycle backward to alacritty (3)
+	sel, _ = sel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	if sel.CursorIndex() != 3 {
+		t.Fatalf("expected cursor after 'k' to cycle backward to 3 (alacritty), got %d", sel.CursorIndex())
+	}
+
+	// Case 2: All items disabled
+	allDisabled := []SelectorItem{
+		{Name: "a", Disabled: true},
+		{Name: "b", Disabled: true},
+	}
+	selNone := NewSelector(allDisabled)
+	if selNone.CursorIndex() != -1 {
+		t.Errorf("expected cursor to be -1 when all items are disabled, got %d", selNone.CursorIndex())
+	}
+
+	// Pressing j, k, space does nothing
+	selNone, _ = selNone.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if selNone.CursorIndex() != -1 {
+		t.Errorf("expected cursor to stay -1 on j")
+	}
+	selNone, _ = selNone.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	if selNone.CursorIndex() != -1 {
+		t.Errorf("expected cursor to stay -1 on k")
+	}
+	selNone, _ = selNone.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if len(selNone.SelectedItems()) > 0 {
+		t.Errorf("expected no items selected on space when all disabled")
+	}
+}

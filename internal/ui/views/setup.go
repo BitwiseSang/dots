@@ -41,11 +41,14 @@ type SetupModel struct {
 func NewSetupModel(entries []dotfile.Entry, cfg *config.Config) SetupModel {
 	items := make([]components.SelectorItem, len(entries))
 	for i, e := range entries {
+		sStatus := e.SetupStatus()
+		disabled := (sStatus == dotfile.StatusLinked || sStatus == dotfile.StatusRepoMissing)
 		items[i] = components.SelectorItem{
-			Name:  e.Name,
-			Desc:  e.SetupStatusLabel(),
-			Path:  e.ResolveSystemPath(),
-			IsDir: e.IsDir,
+			Name:     e.Name,
+			Desc:     e.SetupStatusLabel(),
+			Path:     e.ResolveSystemPath(),
+			IsDir:    e.IsDir,
+			Disabled: disabled,
 		}
 	}
 
@@ -80,11 +83,14 @@ func (m *SetupModel) Reset(entries []dotfile.Entry) {
 
 	items := make([]components.SelectorItem, len(entries))
 	for i, e := range entries {
+		sStatus := e.SetupStatus()
+		disabled := (sStatus == dotfile.StatusLinked || sStatus == dotfile.StatusRepoMissing)
 		items[i] = components.SelectorItem{
-			Name:  e.Name,
-			Desc:  e.SetupStatusLabel(),
-			Path:  e.ResolveSystemPath(),
-			IsDir: e.IsDir,
+			Name:     e.Name,
+			Desc:     e.SetupStatusLabel(),
+			Path:     e.ResolveSystemPath(),
+			IsDir:    e.IsDir,
+			Disabled: disabled,
 		}
 	}
 	m.selector = components.NewSelector(items)
@@ -161,6 +167,12 @@ func (m SetupModel) Update(msg tea.Msg) (SetupModel, tea.Cmd) {
 					m.vp.SetContent(m.generatePreview(selected))
 					return m, nil
 				}
+				cursor := m.selector.CursorIndex()
+				if cursor >= 0 && cursor < len(m.entries) && !m.selector.Items[cursor].Disabled {
+					m.phase = setupPhasePreview
+					m.vp.SetContent(m.generatePreview([]int{cursor}))
+					return m, nil
+				}
 			}
 			m.selector, cmd = m.selector.Update(msg)
 			cmds = append(cmds, cmd)
@@ -171,12 +183,24 @@ func (m SetupModel) Update(msg tea.Msg) (SetupModel, tea.Cmd) {
 				m.phase = setupPhaseSelect
 				return m, nil
 			case "enter":
-				m.phase = setupPhaseExecute
 				var toSetup []dotfile.Entry
 				for _, idx := range m.selector.SelectedIndices() {
-					toSetup = append(toSetup, m.entries[idx])
+					if !m.selector.Items[idx].Disabled {
+						toSetup = append(toSetup, m.entries[idx])
+					}
+				}
+				if len(toSetup) == 0 {
+					cursor := m.selector.CursorIndex()
+					if cursor >= 0 && cursor < len(m.entries) && !m.selector.Items[cursor].Disabled {
+						toSetup = append(toSetup, m.entries[cursor])
+					}
+				}
+				if len(toSetup) == 0 {
+					m.phase = setupPhaseSelect
+					return m, nil
 				}
 
+				m.phase = setupPhaseExecute
 				return m, tea.Batch(
 					m.spinner.Tick,
 					func() tea.Msg {
@@ -298,9 +322,11 @@ func (m SetupModel) View() string {
 		statusHint = "up/down scroll • enter confirm symlink setup • esc back • q quit"
 
 	case setupPhaseExecute:
-		content = indent + lipgloss.NewStyle().Padding(3, 0).Render(
-			fmt.Sprintf("%s Linking %d configurations to system...", m.spinner.View(), len(m.selector.SelectedIndices())),
+		count := len(m.selector.SelectedIndices())
+		spinnerText := lipgloss.NewStyle().Foreground(lipgloss.Color("#A855F7")).Bold(true).Render(
+			fmt.Sprintf("%s Linking %d configurations to system...", m.spinner.View(), count),
 		)
+		content = "\n\n" + indent + spinnerText + "\n"
 		statusHint = "Executing..."
 
 	case setupPhaseDone:

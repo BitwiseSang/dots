@@ -431,8 +431,7 @@ func (m AddConfigModel) View() string {
 
 	switch m.mode {
 	case modeDiscover:
-		tabHeader := indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary).Render("[Discovered Configurations]") +
-			"   " + lipgloss.NewStyle().Foreground(theme.Muted).Render("[Tab] Switch to Manual Form")
+		tabHeader := indent + lipgloss.NewStyle().Foreground(theme.Subtle).Render("[Tab] Switch to Manual Form")
 
 		title := indent + lipgloss.NewStyle().
 			Bold(true).
