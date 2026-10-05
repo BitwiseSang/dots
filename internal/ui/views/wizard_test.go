@@ -294,3 +294,37 @@ func TestWizardModelIgnoreStepAndInSelectorIgnore(t *testing.T) {
 		t.Errorf("expected .dotignore to contain backup.sh after 'i' pressed: %s", string(data2))
 	}
 }
+
+func TestWizardModelLongPathSupport(t *testing.T) {
+	// macOS temp paths frequently exceed 80 characters (e.g. /var/folders/xx/.../T/TestName123/001)
+	deepDir := filepath.Join(t.TempDir(), "subfolder_with_a_very_long_path_name_exceeding_eighty_characters_to_ensure_long_paths_work_correctly")
+	_ = os.MkdirAll(deepDir, 0755)
+	_ = os.Mkdir(filepath.Join(deepDir, "nvim"), 0755)
+	_ = os.Mkdir(filepath.Join(deepDir, "fish"), 0755)
+	_ = os.WriteFile(filepath.Join(deepDir, "tmux.conf"), []byte("test"), 0644)
+
+	cfg := &config.Config{
+		Editor:   "nvim",
+		RepoPath: deepDir,
+	}
+
+	m := NewWizardModel(cfg)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.repoInput.SetValue(deepDir)
+
+	// Step 1 -> Step 2
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Step 2 -> Step 3
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Step 3 -> Step 4
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Step 4 -> Step 5
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.step != wizardStepDiscover {
+		t.Fatalf("expected step to be wizardStepDiscover, got %v", m.step)
+	}
+	if len(m.repoSpecs) != 3 {
+		t.Fatalf("expected 3 configs discovered with long path (length %d), got %d", len(deepDir), len(m.repoSpecs))
+	}
+}

@@ -34,7 +34,7 @@ func ResolveRepoInput(input string) (isRemote bool, remoteURL string, localPath 
 	}
 
 	// GitHub shorthand: <username>/<repository> (e.g. "BitwiseSang/dotfiles")
-	if !strings.HasPrefix(trimmed, "~") && !strings.HasPrefix(trimmed, "/") && !strings.HasPrefix(trimmed, ".") {
+	if !filepath.IsAbs(trimmed) && !strings.HasPrefix(trimmed, "~") && !strings.HasPrefix(trimmed, "/") && !strings.HasPrefix(trimmed, ".") && !strings.Contains(trimmed, `\`) {
 		parts := strings.Split(trimmed, "/")
 		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
 			remoteURL = fmt.Sprintf("https://github.com/%s/%s.git", parts[0], parts[1])

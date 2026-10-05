@@ -72,7 +72,7 @@ func NewWizardModel(cfg *config.Config) WizardModel {
 	repoTi.PromptStyle = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
 	repoTi.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
 	repoTi.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.Muted)
-	repoTi.CharLimit = 80
+	repoTi.CharLimit = 0 // 0 allows unlimited length for long filesystem paths and repository URLs
 	repoTi.Focus()
 
 	defaultRepo := "~/dotfiles"
