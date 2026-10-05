@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -151,13 +152,22 @@ func Load() (*Config, error) {
 		cfg.Dotfiles = DefaultDotfiles()
 	}
 	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
+	cfg.SortDotfiles()
 
 	return &cfg, nil
+}
+
+// SortDotfiles sorts cfg.Dotfiles in-place alphabetically by name (case-insensitive).
+func (c *Config) SortDotfiles() {
+	sort.Slice(c.Dotfiles, func(i, j int) bool {
+		return strings.ToLower(c.Dotfiles[i].Name) < strings.ToLower(c.Dotfiles[j].Name)
+	})
 }
 
 // SaveToPath serializes and writes the configuration to a specific file path.
 func SaveToPath(cfg *Config, targetPath string) error {
 	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
+	cfg.SortDotfiles()
 	expanded := ExpandPath(targetPath)
 	if err := os.MkdirAll(filepath.Dir(expanded), 0755); err != nil {
 		return err
@@ -194,14 +204,19 @@ func ConfigExists() bool {
 
 // AddDotfile adds a spec to cfg.Dotfiles if not already present by name, or updates it.
 func (c *Config) AddDotfile(spec DotfileSpec) bool {
+	replaced := false
 	for i, d := range c.Dotfiles {
 		if strings.EqualFold(d.Name, spec.Name) {
 			c.Dotfiles[i] = spec
-			return false // replaced existing
+			replaced = true
+			break
 		}
 	}
-	c.Dotfiles = append(c.Dotfiles, spec)
-	return true // added new
+	if !replaced {
+		c.Dotfiles = append(c.Dotfiles, spec)
+	}
+	c.SortDotfiles()
+	return !replaced
 }
 
 // RemoveDotfile removes a spec from cfg.Dotfiles by name (case-insensitive).
@@ -237,6 +252,7 @@ func LoadFromPath(configPath string) (*Config, error) {
 		cfg.Dotfiles = DefaultDotfiles()
 	}
 	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
+	cfg.SortDotfiles()
 	return &cfg, nil
 }
 

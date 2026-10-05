@@ -151,3 +151,50 @@ func TestRunDirectRemove_Flags(t *testing.T) {
 		t.Errorf("expected 0 entries remaining, got %d", len(entries))
 	}
 }
+
+func TestRunDirectRefresh(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "dots_refresh_cmd_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	t.Setenv("HOME", tempDir)
+
+	repoDir := filepath.Join(tempDir, "dotfiles")
+	_ = os.MkdirAll(filepath.Join(repoDir, "nvim"), 0755)
+	_ = os.MkdirAll(filepath.Join(repoDir, "alacritty"), 0755)
+
+	cfg := &config.Config{
+		RepoPath: repoDir,
+		Dotfiles: []config.DotfileSpec{
+			{Name: "nvim", RepoPath: "nvim", SystemPath: "~/.config/nvim"},
+		},
+	}
+	_ = config.Save(cfg)
+
+	// First refresh should discover alacritty
+	err = runDirectRefresh()
+	if err != nil {
+		t.Fatalf("runDirectRefresh failed: %v", err)
+	}
+
+	loadedCfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("failed to reload config: %v", err)
+	}
+	if len(loadedCfg.Dotfiles) != 2 {
+		t.Fatalf("expected 2 dotfiles, got %d", len(loadedCfg.Dotfiles))
+	}
+	if loadedCfg.Dotfiles[0].Name != "alacritty" || loadedCfg.Dotfiles[1].Name != "nvim" {
+		t.Errorf("expected [alacritty, nvim], got [%s, %s]",
+			loadedCfg.Dotfiles[0].Name, loadedCfg.Dotfiles[1].Name)
+	}
+
+	// Second refresh should report up to date
+	err = runDirectRefresh()
+	if err != nil {
+		t.Fatalf("second runDirectRefresh failed: %v", err)
+	}
+}
+

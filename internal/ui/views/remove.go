@@ -278,27 +278,59 @@ func (m RemoveModel) startRemoveExecution(mode dotfile.RemoveMode) tea.Cmd {
 }
 
 func (m RemoveModel) View() string {
-	header := components.Header(m.width, m.height, m.animStep, m.cfg.RepoPath)
-	blockWidth := 60
-	padLeft := (m.width - blockWidth) / 2
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+
+	repoPath := ""
+	if m.cfg != nil {
+		repoPath = m.cfg.RepoPath
+	}
+	header := components.Header(width, height, m.animStep, repoPath)
+	var content string
+	var statusHint string
+
+	blockWidth := 66
+	padLeft := (width - blockWidth) / 2
 	if padLeft < 2 {
 		padLeft = 2
 	}
 	indent := strings.Repeat(" ", padLeft)
 
-	var sb strings.Builder
-	sb.WriteString(header)
-	sb.WriteString("\n")
-
 	switch m.phase {
 	case removePhaseSelect:
-		title := theme.TitleStyle.Foreground(theme.Error).Render("REMOVE CONFIGURATIONS")
-		sub := theme.SubtitleStyle.Render("Select configurations to remove:")
-		sb.WriteString(indent + title + "\n")
-		sb.WriteString(indent + sub + "\n\n")
-		sb.WriteString(m.selector.View())
+		title := indent + lipgloss.NewStyle().
+			Bold(true).
+			Foreground(theme.Error).
+			Render("Select configurations to remove:")
+
+		selLines := strings.Split(m.selector.View(), "\n")
+		var indentedSel []string
+		for _, l := range selLines {
+			indentedSel = append(indentedSel, indent+l)
+		}
+
+		content = lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			"",
+			strings.Join(indentedSel, "\n"),
+		)
+		if m.selector.IsFiltering() {
+			statusHint = "tab toggle • enter done • esc clear • ↑/↓ move"
+		} else if m.selector.HasFilter() {
+			statusHint = "space toggle • / search • esc clear • enter next • q quit"
+		} else {
+			statusHint = "space toggle • a all • / search • enter next • esc home • q quit"
+		}
 
 	case removePhaseMode:
+		var sb strings.Builder
 		title := theme.TitleStyle.Foreground(theme.Error).Render("SELECT REMOVAL MODE")
 		targetNames := make([]string, len(m.selectedTargets))
 		for i, t := range m.selectedTargets {
@@ -327,8 +359,11 @@ func (m RemoveModel) View() string {
 		}
 		sb.WriteString(indent + cur2 + style2.Render("[2] Remove repository files and symlinks") + "\n")
 		sb.WriteString(indent + "    " + theme.MutedStyle.Render("Deletes files from repo, unlinks system symlinks, and untracks from dots.") + "\n\n")
+		content = sb.String()
+		statusHint = "↑/↓/1/2 select mode • enter confirm • esc back • q quit"
 
 	case removePhaseConfirm:
+		var sb strings.Builder
 		title := theme.ErrorStyle.Render("⚠️  CONFIRM DELETION")
 		sb.WriteString(indent + title + "\n")
 		sb.WriteString(indent + theme.WarningStyle.Render("This will permanently delete the following configurations from your repository:") + "\n\n")
@@ -343,8 +378,11 @@ func (m RemoveModel) View() string {
 
 		prompt := fmt.Sprintf("%s Are you sure you want to proceed with permanent deletion? (y/n)", theme.IconQuit)
 		sb.WriteString(indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Error).Render(prompt) + "\n")
+		content = sb.String()
+		statusHint = "y confirm delete • n/esc cancel • q quit"
 
 	case removePhaseGit:
+		var sb strings.Builder
 		title := theme.TitleStyle.Foreground(theme.Secondary).Render("GIT INTEGRATION")
 		sb.WriteString(indent + title + "\n\n")
 
@@ -355,13 +393,19 @@ func (m RemoveModel) View() string {
 			prompt := fmt.Sprintf("%s Push committed changes to remote repository? (y/n)", theme.IconGit)
 			sb.WriteString(indent + lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Render(prompt) + "\n")
 		}
+		content = sb.String()
+		statusHint = "y yes • n no • esc back • q quit"
 
 	case removePhaseExecute:
+		var sb strings.Builder
 		title := theme.TitleStyle.Foreground(theme.Error).Render("REMOVING CONFIGURATIONS")
 		sb.WriteString(indent + title + "\n\n")
 		sb.WriteString(indent + m.spinner.View() + " Removing configurations...\n")
+		content = sb.String()
+		statusHint = "Executing..."
 
 	case removePhaseDone:
+		var sb strings.Builder
 		title := theme.SuccessStyle.Render("REMOVAL COMPLETE")
 		sb.WriteString(indent + title + "\n\n")
 
@@ -395,28 +439,11 @@ func (m RemoveModel) View() string {
 			}
 			sb.WriteString("\n")
 		}
-	}
-
-	content := sb.String()
-
-	statusHint := ""
-	switch m.phase {
-	case removePhaseSelect:
-		if m.selector.IsSearching() {
-			statusHint = "enter confirm search • esc cancel search"
-		} else {
-			statusHint = "↑/↓ navigate • space select • enter next • / search • esc home • q quit"
-		}
-	case removePhaseMode:
-		statusHint = "↑/↓/1/2 select mode • enter confirm • esc back • q quit"
-	case removePhaseConfirm:
-		statusHint = "y confirm delete • n/esc cancel • q quit"
-	case removePhaseGit:
-		statusHint = "y yes • n no • esc back • q quit"
-	case removePhaseDone:
+		content = sb.String()
 		statusHint = "enter/esc return home • q quit"
 	}
 
-	statusBar := components.StatusBar("Remove", statusHint, m.width)
-	return components.PlacePinnedStatusBar(content, statusBar, m.height)
+	statusBar := components.StatusBar("Remove", statusHint, width)
+	topBlock := lipgloss.JoinVertical(lipgloss.Top, header, content)
+	return components.PlacePinnedStatusBar(topBlock, statusBar, height)
 }

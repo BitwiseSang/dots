@@ -29,8 +29,8 @@ func TestBackupModelDisabledItemsAndSelection(t *testing.T) {
 	cfg := &config.Config{
 		RepoPath: repoDir,
 		Dotfiles: []config.DotfileSpec{
-			{Name: "clean", RepoPath: "clean.conf", SystemPath: filepath.Join(sysDir, "clean.conf"), Method: "copy"},
-			{Name: "changed", RepoPath: "changed.conf", SystemPath: filepath.Join(sysDir, "changed.conf"), Method: "copy"},
+			{Name: "a_clean", RepoPath: "clean.conf", SystemPath: filepath.Join(sysDir, "clean.conf"), Method: "copy"},
+			{Name: "b_changed", RepoPath: "changed.conf", SystemPath: filepath.Join(sysDir, "changed.conf"), Method: "copy"},
 		},
 	}
 	entries := dotfile.LoadEntries(cfg)

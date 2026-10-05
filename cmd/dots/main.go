@@ -150,12 +150,25 @@ Modes:
 	removeCmd.Flags().StringVarP(&removeMessageFlag, "message", "M", "", "Git commit message")
 	removeCmd.Flags().BoolVarP(&removePushFlag, "push", "p", false, "Push git commit to remote")
 
+	refreshCmd := &cobra.Command{
+		Use:   "refresh",
+		Short: "Scan repository and synchronize new dotfile configurations",
+		Long: `Scan repository and synchronize new dotfile configurations into the dots database.
+
+Automatically detects newly added files and directories in your dotfiles repository
+(as well as configs defined in repo-level config.toml) without needing to re-run 'dots init'.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDirectRefresh()
+		},
+	}
+
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(addCmd)
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(editCmd)
 	rootCmd.AddCommand(removeCmd)
+	rootCmd.AddCommand(refreshCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -189,6 +202,9 @@ func loadAppConfig() (*config.Config, error) {
 	}
 	if repoFlag != "" {
 		cfg.RepoPath = repoFlag
+	}
+	if config.ConfigExists() && cfg.RepoPath != "" {
+		_, _ = dotfile.RefreshDatabase(cfg)
 	}
 	return cfg, nil
 }
@@ -401,3 +417,50 @@ func runDirectRemove(name string, flags removeFlags) error {
 	}
 	return nil
 }
+
+func runDirectRefresh() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+	if editorFlag != "" {
+		cfg.Editor = editorFlag
+	}
+	if repoFlag != "" {
+		cfg.RepoPath = repoFlag
+	}
+	if cfg.RepoPath == "" {
+		return fmt.Errorf("no repository configured. Run 'dots init' first")
+	}
+
+	fmt.Printf("%s Scanning repository: %s...\n\n",
+		theme.SubtitleStyle.Render("⚡"),
+		theme.MutedStyle.Render(cfg.RepoPath),
+	)
+
+	newlyAdded, updated := dotfile.RefreshDatabase(cfg)
+	if !updated || len(newlyAdded) == 0 {
+		fmt.Printf("%s Dots database is up to date (%d configurations tracked).\n",
+			theme.SuccessStyle.Render("✓"),
+			len(cfg.Dotfiles),
+		)
+		return nil
+	}
+
+	fmt.Printf("%s Discovered and added %d new configuration(s):\n",
+		theme.SuccessStyle.Render("✓"),
+		len(newlyAdded),
+	)
+	for _, spec := range newlyAdded {
+		icon, iconColor := theme.FileIconStyled(spec.Name, spec.IsDir)
+		coloredIcon := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(icon + " ")
+		fmt.Printf("  • %s%s (%s)\n",
+			coloredIcon,
+			lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Render(spec.Name),
+			theme.MutedStyle.Render(spec.SystemPath),
+		)
+	}
+	fmt.Printf("\n%s Database updated and sorted alphabetically.\n", theme.MutedStyle.Render("→"))
+	return nil
+}
+

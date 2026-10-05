@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/BitwiseSang/dots/internal/config"
 	"github.com/BitwiseSang/dots/internal/git"
@@ -66,6 +68,9 @@ func LoadEntries(cfg *config.Config) []Entry {
 	for _, spec := range cfg.Dotfiles {
 		entries = append(entries, NewEntry(spec, repoRoot))
 	}
+	sort.Slice(entries, func(i, j int) bool {
+		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
+	})
 	return entries
 }
 

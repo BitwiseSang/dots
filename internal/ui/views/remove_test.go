@@ -3,6 +3,7 @@ package views
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BitwiseSang/dots/internal/config"
@@ -172,3 +173,42 @@ func TestCLIRemoveModel_CancelFlows(t *testing.T) {
 		t.Errorf("expected Cancelled to be true on 'n' at confirm")
 	}
 }
+
+func TestRemoveModelViewAppearance(t *testing.T) {
+	cfg := &config.Config{
+		RepoPath: "/test/repo",
+		Dotfiles: []config.DotfileSpec{
+			{Name: "zsh", RepoPath: "zshrc", SystemPath: "/tmp/.zshrc"},
+		},
+	}
+	entries := dotfile.LoadEntries(cfg)
+	m := NewRemoveModel(entries, cfg)
+	m.width = 100
+	m.height = 30
+
+	view := m.View()
+
+	// Must NOT contain the old large title
+	if strings.Contains(view, "REMOVE CONFIGURATIONS") {
+		t.Errorf("expected view not to contain 'REMOVE CONFIGURATIONS'")
+	}
+
+	// Must contain the red subtitle
+	if !strings.Contains(view, "Select configurations to remove:") {
+		t.Errorf("expected view to contain 'Select configurations to remove:'")
+	}
+
+	// Verify indentation: selector lines should have padLeft spaces
+	expectedIndent := strings.Repeat(" ", (100-66)/2)
+	foundIndented := false
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Select configurations to remove:") && strings.HasPrefix(line, expectedIndent) {
+			foundIndented = true
+			break
+		}
+	}
+	if !foundIndented {
+		t.Errorf("expected subtitle to be indented with %d spaces", (100-66)/2)
+	}
+}
+

@@ -44,6 +44,9 @@ type AppModel struct {
 }
 
 func NewApp(cfg *config.Config, initialView views.ViewType) AppModel {
+	if cfg != nil && cfg.RepoPath != "" {
+		dotfile.RefreshDatabase(cfg)
+	}
 	entries := dotfile.LoadEntries(cfg)
 
 	// Harmonic spring for smooth damping transitions
@@ -182,6 +185,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case views.NavigateMsg:
+		if m.cfg != nil && m.cfg.RepoPath != "" {
+			dotfile.RefreshDatabase(m.cfg)
+		}
 		var initCmd tea.Cmd
 		prevView := m.currentView
 		m.currentView = msg.View

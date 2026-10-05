@@ -202,3 +202,23 @@ func TestEntrySetupAndBackupStatus(t *testing.T) {
 		t.Errorf("expected BackupStatus to be StatusChanged, got %v", entry.BackupStatus())
 	}
 }
+
+func TestLoadEntries_Alphabetical(t *testing.T) {
+	cfg := &config.Config{
+		RepoPath: "/tmp",
+		Dotfiles: []config.DotfileSpec{
+			{Name: "zsh"},
+			{Name: "alacritty"},
+			{Name: "tmux"},
+			{Name: "bash"},
+		},
+	}
+	entries := LoadEntries(cfg)
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 entries, got %d", len(entries))
+	}
+	if entries[0].Name != "alacritty" || entries[1].Name != "bash" || entries[2].Name != "tmux" || entries[3].Name != "zsh" {
+		t.Errorf("expected alphabetical order, got: %s, %s, %s, %s",
+			entries[0].Name, entries[1].Name, entries[2].Name, entries[3].Name)
+	}
+}

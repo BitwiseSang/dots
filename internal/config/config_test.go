@@ -122,3 +122,23 @@ func TestRemoveDotfile(t *testing.T) {
 		t.Errorf("expected 0 dotfiles, got %d", len(cfg.Dotfiles))
 	}
 }
+
+func TestSortDotfiles(t *testing.T) {
+	cfg := &Config{
+		Dotfiles: []DotfileSpec{
+			{Name: "zsh"},
+			{Name: "alacritty"},
+			{Name: "bash"},
+		},
+	}
+	cfg.SortDotfiles()
+	if cfg.Dotfiles[0].Name != "alacritty" || cfg.Dotfiles[1].Name != "bash" || cfg.Dotfiles[2].Name != "zsh" {
+		t.Errorf("expected alphabetical order, got %+v", cfg.Dotfiles)
+	}
+
+	// Adding dotfile automatically maintains sort order
+	cfg.AddDotfile(DotfileSpec{Name: "aria2"})
+	if cfg.Dotfiles[1].Name != "aria2" {
+		t.Errorf("expected aria2 to be sorted at index 1, got %+v", cfg.Dotfiles)
+	}
+}
