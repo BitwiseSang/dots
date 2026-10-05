@@ -5,11 +5,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 // movePath renames src to dst, falling back to copy+delete across filesystems.
 func movePath(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
 	if err := os.Rename(src, dst); err == nil {
 		return nil
 	}
@@ -74,12 +78,22 @@ func Setup(entry Entry, backupDir string) (bool, string, error) {
 			os.Remove(sysPath)
 		} else {
 			if backupDir == "" {
+				var err error
 				backupDir, err = CreateBackupDir()
 				if err != nil {
 					return false, "", fmt.Errorf("failed to create backup dir: %v", err)
 				}
 			}
-			backupPath = filepath.Join(backupDir, filepath.Base(sysPath))
+			home, _ := os.UserHomeDir()
+			backupPath = filepath.Join(backupDir, entry.Name, filepath.Base(sysPath))
+			if home != "" {
+				if rel, err := filepath.Rel(home, sysPath); err == nil && !strings.HasPrefix(rel, "..") {
+					backupPath = filepath.Join(backupDir, rel)
+				}
+			}
+			if _, err := os.Lstat(backupPath); err == nil {
+				backupPath = fmt.Sprintf("%s_%d", backupPath, time.Now().UnixNano())
+			}
 			if err := movePath(sysPath, backupPath); err != nil {
 				return false, "", fmt.Errorf("failed to backup existing file: %v", err)
 			}

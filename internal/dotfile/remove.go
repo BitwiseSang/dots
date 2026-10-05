@@ -139,7 +139,9 @@ func RemoveAll(entries []Entry, mode RemoveMode, cfg *config.Config, commitGit b
 
 	// If mode is RemoveModeAll and configs were removed, save config files and stage git
 	if mode == RemoveModeAll && cfg != nil && len(removedNames) > 0 {
-		_ = config.Save(cfg)
+		if err := config.Save(cfg); err != nil {
+			return results, fmt.Errorf("failed to save config: %w", err)
+		}
 
 		// Also update repo-level config if present
 		if repoCfgPath := config.FindRepoConfigFile(cfg.RepoPath); repoCfgPath != "" {
@@ -147,7 +149,9 @@ func RemoveAll(entries []Entry, mode RemoveMode, cfg *config.Config, commitGit b
 				for _, name := range removedNames {
 					rCfg.RemoveDotfile(name)
 				}
-				_ = config.SaveToPath(rCfg, repoCfgPath)
+				if err := config.SaveToPath(rCfg, repoCfgPath); err != nil {
+					return results, fmt.Errorf("failed to save repo config at %s: %w", repoCfgPath, err)
+				}
 				if rel, err := filepath.Rel(absRepo, repoCfgPath); err == nil {
 					stagedPaths = append(stagedPaths, rel)
 				}
@@ -156,21 +160,24 @@ func RemoveAll(entries []Entry, mode RemoveMode, cfg *config.Config, commitGit b
 
 		// Git stage and commit
 		if commitGit && absRepo != "" && git.IsRepo(absRepo) && len(stagedPaths) > 0 {
-			if err := git.AddPaths(absRepo, stagedPaths); err == nil {
-				if commitMsg == "" {
-					commitMsg = fmt.Sprintf("feat(config): remove %s config", strings.Join(removedNames, ", "))
+			if err := git.AddPaths(absRepo, stagedPaths); err != nil {
+				return results, fmt.Errorf("failed to stage removed paths in git: %w", err)
+			}
+			if commitMsg == "" {
+				commitMsg = fmt.Sprintf("feat(config): remove %s config", strings.Join(removedNames, ", "))
+			}
+			if err := git.Commit(absRepo, commitMsg); err != nil {
+				return results, fmt.Errorf("failed to commit removal to git: %w", err)
+			}
+			for _, res := range results {
+				res.GitCommitted = true
+			}
+			if pushGit {
+				if err := git.Push(absRepo); err != nil {
+					return results, fmt.Errorf("failed to push removal to remote: %w", err)
 				}
-				if err := git.Commit(absRepo, commitMsg); err == nil {
-					for _, res := range results {
-						res.GitCommitted = true
-					}
-					if pushGit {
-						if err := git.Push(absRepo); err == nil {
-							for _, res := range results {
-								res.GitPushed = true
-							}
-						}
-					}
+				for _, res := range results {
+					res.GitPushed = true
 				}
 			}
 		}

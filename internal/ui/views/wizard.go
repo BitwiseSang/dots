@@ -212,7 +212,11 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 					)
 				} else {
 					if _, err := os.Stat(localPath); os.IsNotExist(err) {
-						_ = git.InitRepo(localPath)
+						if err := git.InitRepo(localPath); err != nil {
+							m.cloneErr = err
+							m.step = wizardStepCloning
+							return m, nil
+						}
 					}
 					return m.loadRepoAndAdvance(localPath)
 				}
@@ -357,7 +361,9 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 					m.dotIgnore = dotfile.LoadDotIgnore(m.resolvedLocal)
 				}
 				m.dotIgnore.Patterns = pats
-				_ = m.dotIgnore.Save()
+				if err := m.dotIgnore.Save(); err != nil {
+					m.ignoreMsg = fmt.Sprintf("Failed to save .dotignore: %v", err)
+				}
 
 				m.rescanDiscoveredConfigs()
 				m.step = wizardStepDiscover
@@ -391,13 +397,19 @@ func (m WizardModel) Update(msg tea.Msg) (WizardModel, tea.Cmd) {
 					if m.dotIgnore == nil {
 						m.dotIgnore = dotfile.LoadDotIgnore(m.resolvedLocal)
 					}
-					_ = m.dotIgnore.AddPattern(target.RepoPath)
-					m.ignoreMsg = fmt.Sprintf("Ignored '%s' (saved to .dotignore)", target.Name)
+					if err := m.dotIgnore.AddPattern(target.RepoPath); err != nil {
+						m.ignoreMsg = fmt.Sprintf("Failed to ignore '%s': %v", target.Name, err)
+					} else {
+						m.ignoreMsg = fmt.Sprintf("Ignored '%s' (saved to .dotignore)", target.Name)
+					}
 
 					m.repoSpecs = append(m.repoSpecs[:idx], m.repoSpecs[idx+1:]...)
-					m.selector.Items = append(m.selector.Items[:idx], m.selector.Items[idx+1:]...)
-					if m.selector.CursorIndex() >= len(m.selector.Items) && len(m.selector.Items) > 0 {
-						m.selector.SetCursor(len(m.selector.Items) - 1)
+					newItems := append(m.selector.Items[:idx], m.selector.Items[idx+1:]...)
+					m.selector.SetItems(newItems)
+					if idx < len(newItems) {
+						m.selector.SetCursor(idx)
+					} else if len(newItems) > 0 {
+						m.selector.SetCursor(len(newItems) - 1)
 					}
 				}
 				return m, nil

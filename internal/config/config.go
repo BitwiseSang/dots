@@ -175,14 +175,19 @@ func SaveToPath(cfg *Config, targetPath string) error {
 	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
 	cfg.SortDotfiles()
 	expanded := ExpandPath(targetPath)
-	if err := os.MkdirAll(filepath.Dir(expanded), 0755); err != nil {
+	dir := filepath.Dir(expanded)
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 	data, err := toml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(expanded, data, 0644)
+	tmpFile := filepath.Join(dir, fmt.Sprintf(".config_%d.tmp", os.Getpid()))
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, expanded)
 }
 
 func Save(cfg *Config) error {

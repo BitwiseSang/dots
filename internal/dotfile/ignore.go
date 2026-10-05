@@ -1,6 +1,7 @@
 package dotfile
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,5 +196,9 @@ func (d *DotIgnore) Save() error {
 		sb.WriteString("\n")
 	}
 
-	return os.WriteFile(ignoreFile, []byte(sb.String()), 0644)
+	tmpFile := filepath.Join(absPath, fmt.Sprintf(".dotignore_%d.tmp", os.Getpid()))
+	if err := os.WriteFile(tmpFile, []byte(sb.String()), 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, ignoreFile)
 }

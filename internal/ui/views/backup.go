@@ -239,7 +239,7 @@ func (m BackupModel) Update(msg tea.Msg) (BackupModel, tea.Cmd) {
 					return m, nil
 				}
 				cursor := m.selector.CursorIndex()
-				if cursor >= 0 && cursor < len(m.entries) {
+				if cursor >= 0 && cursor < len(m.entries) && !m.selector.Items[cursor].Disabled {
 					m.phase = phaseDiff
 					m.vp.SetContent(m.generateDiff([]int{cursor}))
 					return m, nil

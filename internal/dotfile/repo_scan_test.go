@@ -100,9 +100,9 @@ func TestRefreshDatabase_NewFolderAndFile(t *testing.T) {
 	_ = config.Save(cfg)
 
 	// Run RefreshDatabase
-	newlyAdded, updated := RefreshDatabase(cfg)
-	if !updated {
-		t.Fatalf("expected RefreshDatabase to return updated=true")
+	newlyAdded, err := RefreshDatabase(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error from RefreshDatabase: %v", err)
 	}
 
 	// Should have discovered alacritty and tmux (not setup.sh, backup.sh, README, Makefile, .git, dots)
@@ -134,9 +134,9 @@ func TestRefreshDatabase_NewFolderAndFile(t *testing.T) {
 	}
 
 	// Run RefreshDatabase a second time: should detect no changes
-	newlyAdded2, updated2 := RefreshDatabase(cfg)
-	if updated2 || len(newlyAdded2) != 0 {
-		t.Errorf("expected no changes on second run, got updated=%v, added=%+v", updated2, newlyAdded2)
+	newlyAdded2, err2 := RefreshDatabase(cfg)
+	if err2 != nil || len(newlyAdded2) != 0 {
+		t.Errorf("expected no changes on second run, got err=%v, added=%+v", err2, newlyAdded2)
 	}
 }
 
@@ -241,9 +241,9 @@ is_dir = true
 	}
 	_ = config.Save(cfg)
 
-	newlyAdded, updated := RefreshDatabase(cfg)
-	if !updated || len(newlyAdded) != 1 || newlyAdded[0].Name != "kitty" {
-		t.Fatalf("expected kitty to be added from repo config.toml, got %+v", newlyAdded)
+	newlyAdded, err := RefreshDatabase(cfg)
+	if err != nil || len(newlyAdded) != 1 || newlyAdded[0].Name != "kitty" {
+		t.Fatalf("expected kitty to be added from repo config.toml, got %+v (err: %v)", newlyAdded, err)
 	}
 }
 

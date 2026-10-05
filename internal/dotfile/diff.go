@@ -60,6 +60,10 @@ func Diff(entry Entry) (string, error) {
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 {
 			fsDiff = string(out)
+		} else if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() > 1 {
+			return "", fmt.Errorf("diff command error (exit code %d): %s", exitError.ExitCode(), string(exitError.Stderr))
+		} else {
+			return "", fmt.Errorf("diff command failed: %w", err)
 		}
 	}
 

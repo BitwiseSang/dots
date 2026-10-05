@@ -17,19 +17,20 @@ import (
 func ResolveRepoInput(input string) (isRemote bool, remoteURL string, localPath string) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return false, "", config.ExpandPath("~/dotfiles")
+		return false, "", ""
 	}
 
 	// Full git URL (https://, http://, git@, ssh://)
 	if strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "http://") ||
 		strings.HasPrefix(trimmed, "git@") || strings.HasPrefix(trimmed, "ssh://") {
 		clean := strings.TrimSuffix(trimmed, ".git")
+		clean = strings.ReplaceAll(clean, ":", "/")
 		parts := strings.Split(clean, "/")
 		base := parts[len(parts)-1]
 		if base == "" {
 			base = "dotfiles"
 		}
-		return true, trimmed, config.ExpandPath(filepath.Join("~", "dotfiles"))
+		return true, trimmed, config.ExpandPath(filepath.Join("~", base))
 	}
 
 	// GitHub shorthand: <username>/<repository> (e.g. "BitwiseSang/dotfiles")

@@ -7,18 +7,20 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/BitwiseSang/dots/internal/config"
 )
 
 func IsRepo(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
-	cmd.Dir = path
+	cmd.Dir = config.ExpandPath(path)
 	err := cmd.Run()
 	return err == nil
 }
 
 func HasChanges(repoPath string) (bool, error) {
 	cmd := exec.Command("git", "status", "--porcelain")
-	cmd.Dir = repoPath
+	cmd.Dir = config.ExpandPath(repoPath)
 	out, err := cmd.Output()
 	if err != nil {
 		return false, err
@@ -29,7 +31,7 @@ func HasChanges(repoPath string) (bool, error) {
 // HasChangesForPath returns true if a specific subdirectory/file has unstaged, staged, or untracked changes.
 func HasChangesForPath(repoPath, subPath string) (bool, error) {
 	cmd := exec.Command("git", "status", "--porcelain", "-u", "--", subPath)
-	cmd.Dir = repoPath
+	cmd.Dir = config.ExpandPath(repoPath)
 	out, err := cmd.Output()
 	if err != nil {
 		return false, err
@@ -39,12 +41,13 @@ func HasChangesForPath(repoPath, subPath string) (bool, error) {
 
 // DiffPath returns the unified diff for a path within the repository, including untracked files.
 func DiffPath(repoPath, subPath string) (string, error) {
+	absRepo := config.ExpandPath(repoPath)
 	cmd := exec.Command("git", "diff", "HEAD", "--", subPath)
-	cmd.Dir = repoPath
+	cmd.Dir = absRepo
 	out, err := cmd.Output()
 	if err != nil {
 		cmd = exec.Command("git", "diff", "--", subPath)
-		cmd.Dir = repoPath
+		cmd.Dir = absRepo
 		out, err = cmd.Output()
 		if err != nil {
 			return "", err
@@ -54,7 +57,7 @@ func DiffPath(repoPath, subPath string) (string, error) {
 	diffStr := strings.TrimSpace(string(out))
 
 	statusCmd := exec.Command("git", "status", "--porcelain", "-u", "--", subPath)
-	statusCmd.Dir = repoPath
+	statusCmd.Dir = absRepo
 	statusOut, _ := statusCmd.Output()
 
 	var untrackedDiffs []string
@@ -93,7 +96,7 @@ func DiffPath(repoPath, subPath string) (string, error) {
 // Add stages all changed files in the repository.
 func Add(repoPath string) error {
 	cmd := exec.Command("git", "add", ".")
-	cmd.Dir = repoPath
+	cmd.Dir = config.ExpandPath(repoPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -112,7 +115,7 @@ func AddPaths(repoPath string, paths []string) error {
 	}
 	args := append([]string{"add", "--"}, paths...)
 	cmd := exec.Command("git", args...)
-	cmd.Dir = repoPath
+	cmd.Dir = config.ExpandPath(repoPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -126,7 +129,7 @@ func AddPaths(repoPath string, paths []string) error {
 
 func Commit(repoPath, message string) error {
 	cmd := exec.Command("git", "commit", "-m", message)
-	cmd.Dir = repoPath
+	cmd.Dir = config.ExpandPath(repoPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -140,7 +143,7 @@ func Commit(repoPath, message string) error {
 
 func Push(repoPath string) error {
 	cmd := exec.Command("git", "push")
-	cmd.Dir = repoPath
+	cmd.Dir = config.ExpandPath(repoPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

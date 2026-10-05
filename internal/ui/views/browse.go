@@ -229,7 +229,7 @@ func (m BrowseModel) Update(msg tea.Msg) (BrowseModel, tea.Cmd) {
 						m.offset = 0
 						return m, nil
 					}
-					ed := editor.Resolve(m.cfg.Editor)
+					ed := m.resolveEditor()
 					targetPath := item.path
 					return m, func() tea.Msg {
 						return OpenEditorMsg{Path: targetPath, Editor: ed}
@@ -322,7 +322,7 @@ func (m BrowseModel) Update(msg tea.Msg) (BrowseModel, tea.Cmd) {
 					m.offset = 0
 					return m, nil
 				}
-				ed := editor.Resolve(m.cfg.Editor)
+				ed := m.resolveEditor()
 				targetPath := item.path
 				return m, func() tea.Msg {
 					return OpenEditorMsg{Path: targetPath, Editor: ed}
@@ -330,7 +330,7 @@ func (m BrowseModel) Update(msg tea.Msg) (BrowseModel, tea.Cmd) {
 			}
 
 		case "o", "O":
-			ed := editor.Resolve(m.cfg.Editor)
+			ed := m.resolveEditor()
 			dirToOpen := m.currentDir
 			return m, func() tea.Msg {
 				return OpenEditorMsg{Path: dirToOpen, Editor: ed}
@@ -339,6 +339,14 @@ func (m BrowseModel) Update(msg tea.Msg) (BrowseModel, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m BrowseModel) resolveEditor() string {
+	configEd := ""
+	if m.cfg != nil {
+		configEd = m.cfg.Editor
+	}
+	return editor.Resolve(configEd)
 }
 
 func (m BrowseModel) View() string {

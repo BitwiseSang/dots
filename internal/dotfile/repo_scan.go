@@ -1,6 +1,7 @@
 package dotfile
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -142,17 +143,20 @@ func isAlreadyTracked(dotfiles []config.DotfileSpec, candidate config.DotfileSpe
 // in cfg.Dotfiles.
 //
 // Newly discovered configurations are appended, cfg.Dotfiles is sorted alphabetically,
+// RefreshDatabase inspects the repository configured in cfg.RepoPath for any configurations
+// that exist on disk but are not yet tracked in the database (cfg.Dotfiles).
+// If untracked configurations are discovered, they are appended to cfg.Dotfiles, sorted,
 // and the configuration is saved to disk.
-// Returns the slice of newly added DotfileSpecs and a boolean indicating whether any changes were made.
-func RefreshDatabase(cfg *config.Config) ([]config.DotfileSpec, bool) {
+// Returns the slice of newly added DotfileSpecs and any error encountered.
+func RefreshDatabase(cfg *config.Config) ([]config.DotfileSpec, error) {
 	if cfg == nil || cfg.RepoPath == "" {
-		return nil, false
+		return nil, nil
 	}
 
 	absPath := config.ExpandPath(cfg.RepoPath)
 	info, err := os.Stat(absPath)
 	if err != nil || !info.IsDir() {
-		return nil, false
+		return nil, nil
 	}
 
 	dotIgnore := LoadDotIgnore(absPath)
@@ -185,10 +189,12 @@ func RefreshDatabase(cfg *config.Config) ([]config.DotfileSpec, bool) {
 	}
 
 	if len(newlyAdded) == 0 {
-		return nil, false
+		return nil, nil
 	}
 
 	cfg.SortDotfiles()
-	_ = config.Save(cfg)
-	return newlyAdded, true
+	if err := config.Save(cfg); err != nil {
+		return newlyAdded, fmt.Errorf("failed to save refreshed config: %w", err)
+	}
+	return newlyAdded, nil
 }

@@ -6,7 +6,7 @@ import (
 )
 
 // Resolve determines which editor to use.
-// Priority: config editor > $EDITOR env var > "nvim" fallback
+// Priority: config editor > $EDITOR env var > $VISUAL env var > PATH lookup (nvim, vim, nano, vi) > "vi" fallback
 func Resolve(configEditor string) string {
 	if configEditor != "" {
 		return configEditor
@@ -14,7 +14,15 @@ func Resolve(configEditor string) string {
 	if ed := os.Getenv("EDITOR"); ed != "" {
 		return ed
 	}
-	return "nvim"
+	if ed := os.Getenv("VISUAL"); ed != "" {
+		return ed
+	}
+	for _, candidate := range []string{"nvim", "vim", "nano", "vi"} {
+		if _, err := exec.LookPath(candidate); err == nil {
+			return candidate
+		}
+	}
+	return "vi"
 }
 
 // Open opens the given path in the editor.

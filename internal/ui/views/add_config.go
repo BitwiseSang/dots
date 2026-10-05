@@ -45,6 +45,7 @@ type AddConfigModel struct {
 	backedUpCount  int
 	backupDir      string
 	symlinkCreated bool
+	saveErr        error
 
 	successMsg string
 	width      int
@@ -371,7 +372,9 @@ func (m *AddConfigModel) applyAddConfigs(createSymlinks bool) {
 		// 1. Ensure the dotfile exists in the repo
 		if _, statErr := os.Stat(absRepo); os.IsNotExist(statErr) {
 			if _, sysStatErr := os.Stat(sysPath); sysStatErr == nil {
-				_ = dotfile.Backup(entry)
+				if err := dotfile.Backup(entry); err != nil && m.saveErr == nil {
+					m.saveErr = err
+				}
 			}
 		}
 
@@ -383,11 +386,15 @@ func (m *AddConfigModel) applyAddConfigs(createSymlinks bool) {
 				if backedUp {
 					backupCount++
 				}
+			} else if m.saveErr == nil {
+				m.saveErr = err
 			}
 		}
 	}
 
-	_ = config.Save(m.cfg)
+	if err := config.Save(m.cfg); err != nil && m.saveErr == nil {
+		m.saveErr = err
+	}
 
 	m.mode = modeSuccess
 	m.addedCount = len(m.pendingSpecs)
@@ -556,6 +563,13 @@ func (m AddConfigModel) View() string {
 			Render(theme.IconInSync + " Configuration Added Successfully!")
 
 		var details []string
+		if m.saveErr != nil {
+			title = indent + lipgloss.NewStyle().
+				Bold(true).
+				Foreground(theme.Warning).
+				Render("⚠ Warning: Configuration partially saved")
+			details = append(details, fmt.Sprintf("• Error encountered: %v", m.saveErr))
+		}
 		details = append(details, fmt.Sprintf("• Added %d configuration(s) to dotfiles repository", m.addedCount))
 		if m.symlinkCreated {
 			details = append(details, fmt.Sprintf("• Created %d symlink(s) pointing to repository", m.symlinkedCount))

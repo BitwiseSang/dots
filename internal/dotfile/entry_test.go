@@ -222,3 +222,35 @@ func TestLoadEntries_Alphabetical(t *testing.T) {
 			entries[0].Name, entries[1].Name, entries[2].Name, entries[3].Name)
 	}
 }
+
+func TestEntryIsLinked_RelativeSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+	repoDir := filepath.Join(tmpDir, "repo")
+	sysDir := filepath.Join(tmpDir, "sys")
+	_ = os.MkdirAll(repoDir, 0755)
+	_ = os.MkdirAll(sysDir, 0755)
+
+	repoFile := filepath.Join(repoDir, "tmux.conf")
+	_ = os.WriteFile(repoFile, []byte("set -g prefix C-a\n"), 0644)
+
+	sysLink := filepath.Join(sysDir, "tmux.conf")
+
+	// Create relative symlink: ../repo/tmux.conf
+	relTarget, err := filepath.Rel(sysDir, repoFile)
+	if err != nil {
+		t.Fatalf("failed to calculate rel target: %v", err)
+	}
+	if err := os.Symlink(relTarget, sysLink); err != nil {
+		t.Fatalf("failed to create relative symlink: %v", err)
+	}
+
+	entry := NewEntry(config.DotfileSpec{
+		Name:       "tmux",
+		RepoPath:   "tmux.conf",
+		SystemPath: sysLink,
+	}, repoDir)
+
+	if !entry.IsLinked() {
+		t.Errorf("expected relative symlink to be recognized as linked")
+	}
+}

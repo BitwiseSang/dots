@@ -447,8 +447,11 @@ func runDirectRefresh() error {
 		theme.MutedStyle.Render(cfg.RepoPath),
 	)
 
-	newlyAdded, updated := dotfile.RefreshDatabase(cfg)
-	if !updated || len(newlyAdded) == 0 {
+	newlyAdded, err := dotfile.RefreshDatabase(cfg)
+	if err != nil {
+		return err
+	}
+	if len(newlyAdded) == 0 {
 		fmt.Printf("%s Dots database is up to date (%d configurations tracked).\n",
 			theme.SuccessStyle.Render("✓"),
 			len(cfg.Dotfiles),

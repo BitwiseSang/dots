@@ -19,16 +19,25 @@ func TestResolveRepoInput(t *testing.T) {
 	}
 
 	// Case 2: Full Git URL
-	isRemote, url, _ = ResolveRepoInput("https://github.com/torvalds/linux.git")
+	isRemote, url, local = ResolveRepoInput("https://github.com/torvalds/linux.git")
 	if !isRemote {
 		t.Errorf("expected isRemote to be true for https URL")
 	}
 	if url != "https://github.com/torvalds/linux.git" {
 		t.Errorf("expected original url, got %s", url)
 	}
+	if !strings.HasSuffix(local, "linux") {
+		t.Errorf("expected local path to end with linux, got %s", local)
+	}
+
+	// Case 2b: SSH Git URL
+	isRemote, url, local = ResolveRepoInput("git@github.com:torvalds/linux.git")
+	if !isRemote || !strings.HasSuffix(local, "linux") {
+		t.Errorf("expected SSH url to resolve local path ending in linux, got %s", local)
+	}
 
 	// Case 3: Local path
-	isRemote, _, local = ResolveRepoInput("~/Documents/dotfiles")
+	isRemote, _, local = ResolveRepoInput("~/my-dotfiles")
 	if isRemote {
 		t.Errorf("expected isRemote to be false for local path")
 	}

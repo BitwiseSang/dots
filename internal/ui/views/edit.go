@@ -178,7 +178,11 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 					}
 				}
 				path := entry.EditPath()
-				ed := editor.Resolve(m.cfg.Editor)
+				configEd := ""
+				if m.cfg != nil {
+					configEd = m.cfg.Editor
+				}
+				ed := editor.Resolve(configEd)
 				return m, func() tea.Msg {
 					return OpenEditorMsg{Path: path, Editor: ed}
 				}
@@ -188,7 +192,11 @@ func (m EditModel) Update(msg tea.Msg) (EditModel, tea.Cmd) {
 				actualIdx := m.filteredIndices[m.cursor]
 				entry := m.entries[actualIdx]
 				path := entry.EditPath()
-				ed := editor.Resolve(m.cfg.Editor)
+				configEd := ""
+				if m.cfg != nil {
+					configEd = m.cfg.Editor
+				}
+				ed := editor.Resolve(configEd)
 				return m, func() tea.Msg {
 					return OpenEditorMsg{Path: path, Editor: ed}
 				}

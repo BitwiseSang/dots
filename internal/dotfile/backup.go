@@ -25,11 +25,15 @@ func copyFile(src, dst string) error {
 		return err
 	}
 
-	out, err := os.Create(dst)
+	tmpDst := dst + fmt.Sprintf(".tmp_%d", os.Getpid())
+	out, err := os.Create(tmpDst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() {
+		out.Close()
+		_ = os.Remove(tmpDst)
+	}()
 
 	_, err = io.Copy(out, in)
 	if err != nil {
@@ -38,9 +42,11 @@ func copyFile(src, dst string) error {
 
 	info, err := os.Stat(src)
 	if err == nil {
-		os.Chmod(dst, info.Mode())
+		_ = out.Chmod(info.Mode())
 	}
-	return nil
+	out.Close()
+
+	return os.Rename(tmpDst, dst)
 }
 
 func Backup(entry Entry) error {
@@ -62,6 +68,9 @@ func Backup(entry Entry) error {
 	}
 
 	if entry.Method == SyncRsync {
+		if _, err := exec.LookPath("rsync"); err != nil {
+			return fmt.Errorf("rsync is required for directory synchronization but was not found in PATH: %w", err)
+		}
 		src := sysPath
 		if entry.IsDir && src[len(src)-1] != '/' {
 			src += "/"

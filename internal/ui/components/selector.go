@@ -431,7 +431,23 @@ func (s Selector) CursorIndex() int {
 	return s.filteredIndices[s.cursor]
 }
 
+// SetItems updates the items list and recomputes filtered indices.
+func (s *Selector) SetItems(items []SelectorItem) {
+	s.Items = items
+	s.recomputeFiltered()
+}
+
 func (s *Selector) SetCursor(idx int) {
+	if len(s.filteredIndices) == 0 {
+		s.cursor = -1
+		return
+	}
+	for fIdx, rawIdx := range s.filteredIndices {
+		if rawIdx == idx {
+			s.cursor = fIdx
+			return
+		}
+	}
 	if idx < 0 {
 		idx = 0
 	}

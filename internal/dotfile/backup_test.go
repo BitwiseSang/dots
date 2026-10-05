@@ -168,3 +168,62 @@ func TestDiff_NewConfig(t *testing.T) {
 		t.Errorf("expected dir diff to show directory file content additions, got: %s", dDir)
 	}
 }
+
+func TestSetup_NoBackupNameCollision(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	repoDir := filepath.Join(tmpDir, "dotfiles")
+	_ = os.MkdirAll(filepath.Join(repoDir, "ghostty"), 0755)
+	_ = os.MkdirAll(filepath.Join(repoDir, "sway"), 0755)
+	_ = os.WriteFile(filepath.Join(repoDir, "ghostty", "config"), []byte("ghostty repo\n"), 0644)
+	_ = os.WriteFile(filepath.Join(repoDir, "sway", "config"), []byte("sway repo\n"), 0644)
+
+	sysGhostty := filepath.Join(tmpDir, ".config", "ghostty", "config")
+	sysSway := filepath.Join(tmpDir, ".config", "sway", "config")
+	_ = os.MkdirAll(filepath.Dir(sysGhostty), 0755)
+	_ = os.MkdirAll(filepath.Dir(sysSway), 0755)
+	_ = os.WriteFile(sysGhostty, []byte("ghostty existing system\n"), 0644)
+	_ = os.WriteFile(sysSway, []byte("sway existing system\n"), 0644)
+
+	backupDir, err := CreateBackupDir()
+	if err != nil {
+		t.Fatalf("failed to create backup dir: %v", err)
+	}
+
+	entry1 := NewEntry(config.DotfileSpec{
+		Name:       "ghostty",
+		RepoPath:   "ghostty/config",
+		SystemPath: sysGhostty,
+	}, repoDir)
+
+	entry2 := NewEntry(config.DotfileSpec{
+		Name:       "sway",
+		RepoPath:   "sway/config",
+		SystemPath: sysSway,
+	}, repoDir)
+
+	backedUp1, path1, err := Setup(entry1, backupDir)
+	if err != nil || !backedUp1 {
+		t.Fatalf("expected entry1 to be backed up, err: %v", err)
+	}
+
+	backedUp2, path2, err := Setup(entry2, backupDir)
+	if err != nil || !backedUp2 {
+		t.Fatalf("expected entry2 to be backed up, err: %v", err)
+	}
+
+	if path1 == path2 {
+		t.Fatalf("backup paths collided! path1: %s, path2: %s", path1, path2)
+	}
+
+	c1, err := os.ReadFile(path1)
+	if err != nil || string(c1) != "ghostty existing system\n" {
+		t.Errorf("expected ghostty backup to be preserved, got %s (err: %v)", string(c1), err)
+	}
+
+	c2, err := os.ReadFile(path2)
+	if err != nil || string(c2) != "sway existing system\n" {
+		t.Errorf("expected sway backup to be preserved, got %s (err: %v)", string(c2), err)
+	}
+}

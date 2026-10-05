@@ -2,6 +2,7 @@ package dotfile
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -90,8 +91,39 @@ func (e Entry) AbsRepoPath() string {
 	return filepath.Join(e.repoRoot, e.RepoPath)
 }
 
+// filesEqual compares two files in streaming chunks of 32KB without loading the entire files into memory.
+func filesEqual(p1, p2 string) bool {
+	f1, err := os.Open(p1)
+	if err != nil {
+		return false
+	}
+	defer f1.Close()
+
+	f2, err := os.Open(p2)
+	if err != nil {
+		return false
+	}
+	defer f2.Close()
+
+	b1 := make([]byte, 32*1024)
+	b2 := make([]byte, 32*1024)
+	for {
+		n1, err1 := io.ReadFull(f1, b1)
+		n2, err2 := io.ReadFull(f2, b2)
+		if n1 != n2 || !bytes.Equal(b1[:n1], b2[:n2]) {
+			return false
+		}
+		if err1 == io.EOF || err1 == io.ErrUnexpectedEOF {
+			return err2 == io.EOF || err2 == io.ErrUnexpectedEOF
+		}
+		if err1 != nil || err2 != nil {
+			return false
+		}
+	}
+}
+
 // dirsEqual recursively compares all files and subdirectories between two directory trees.
-// Returns true only if file counts, relative structure, and byte contents match completely.
+// Returns true only if file counts, relative structure, sizes, and contents match completely.
 func dirsEqual(dir1, dir2 string) bool {
 	files1 := make(map[string]os.FileInfo)
 	_ = filepath.Walk(dir1, func(path string, info os.FileInfo, err error) error {
@@ -135,15 +167,10 @@ func dirsEqual(dir1, dir2 string) bool {
 			if info1.Size() != info2.Size() {
 				return false
 			}
-			f1, err := os.ReadFile(filepath.Join(dir1, rel))
-			if err != nil {
-				return false
+			if info1.Size() == 0 {
+				continue
 			}
-			f2, err := os.ReadFile(filepath.Join(dir2, rel))
-			if err != nil {
-				return false
-			}
-			if !bytes.Equal(f1, f2) {
+			if !filesEqual(filepath.Join(dir1, rel), filepath.Join(dir2, rel)) {
 				return false
 			}
 		}
@@ -152,6 +179,7 @@ func dirsEqual(dir1, dir2 string) bool {
 }
 
 // IsLinked returns true if the system path is a symlink pointing to the repository path.
+// Handles both absolute and relative symlink targets correctly.
 func (e Entry) IsLinked() bool {
 	sysPath := e.ResolveSystemPath()
 	repoPath := e.AbsRepoPath()
@@ -159,8 +187,18 @@ func (e Entry) IsLinked() bool {
 	sysInfo, err := os.Lstat(sysPath)
 	if err == nil && sysInfo.Mode()&os.ModeSymlink != 0 {
 		target, err := os.Readlink(sysPath)
-		if err == nil && filepath.Clean(target) == filepath.Clean(repoPath) {
-			return true
+		if err == nil {
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(sysPath), target)
+			}
+			if filepath.Clean(target) == filepath.Clean(repoPath) {
+				return true
+			}
+			evalTarget, err1 := filepath.EvalSymlinks(sysPath)
+			evalRepo, err2 := filepath.EvalSymlinks(repoPath)
+			if err1 == nil && err2 == nil && filepath.Clean(evalTarget) == filepath.Clean(evalRepo) {
+				return true
+			}
 		}
 	}
 	return false
