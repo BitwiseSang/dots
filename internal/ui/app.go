@@ -165,6 +165,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case views.NavigateMsg:
 		var initCmd tea.Cmd
+		prevView := m.currentView
 		m.currentView = msg.View
 		if msg.View == views.ViewBrowse {
 			if msg.Path != "" {
@@ -204,7 +205,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.View == views.ViewHome {
 			// Reload entries in case new configs were added
 			m.entries = dotfile.LoadEntries(m.cfg)
+			savedCursor := m.home.Cursor()
+			if prevView != views.ViewHome {
+				m.home.SetCursorForView(prevView)
+				savedCursor = m.home.Cursor()
+			}
 			m.home = views.NewHomeModel(m.cfg.RepoPath)
+			m.home.SetCursor(savedCursor)
 			m.backup = views.NewBackupModel(m.entries, m.cfg)
 			m.setup = views.NewSetupModel(m.entries, m.cfg)
 			m.edit = views.NewEditModel(m.entries, m.cfg)

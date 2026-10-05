@@ -59,6 +59,25 @@ func NewHomeModel(repoPath string) HomeModel {
 	}
 }
 
+func (m *HomeModel) SetCursor(idx int) {
+	if idx >= 0 && idx < len(m.items) {
+		m.cursor = idx
+	}
+}
+
+func (m *HomeModel) SetCursorForView(v ViewType) {
+	for i, item := range m.items {
+		if item.view == v {
+			m.cursor = i
+			return
+		}
+	}
+}
+
+func (m HomeModel) Cursor() int {
+	return m.cursor
+}
+
 func (m HomeModel) Init() tea.Cmd {
 	return nil
 }
@@ -88,14 +107,19 @@ func (m HomeModel) Update(msg tea.Msg) (HomeModel, tea.Cmd) {
 				return NavigateMsg{View: m.items[m.cursor].view}
 			}
 		case "b":
+			m.SetCursorForView(ViewBackup)
 			return m, func() tea.Msg { return NavigateMsg{View: ViewBackup} }
 		case "s":
+			m.SetCursorForView(ViewSetup)
 			return m, func() tea.Msg { return NavigateMsg{View: ViewSetup} }
 		case "e":
+			m.SetCursorForView(ViewEdit)
 			return m, func() tea.Msg { return NavigateMsg{View: ViewEdit} }
 		case "a":
+			m.SetCursorForView(ViewAddConfig)
 			return m, func() tea.Msg { return NavigateMsg{View: ViewAddConfig} }
 		case "f":
+			m.SetCursorForView(ViewBrowse)
 			return m, func() tea.Msg { return NavigateMsg{View: ViewBrowse} }
 		}
 	}
