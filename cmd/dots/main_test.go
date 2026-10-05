@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BitwiseSang/dots/internal/config"
@@ -198,6 +199,20 @@ func TestRunDirectRefresh(t *testing.T) {
 	err = runDirectRefresh()
 	if err != nil {
 		t.Fatalf("second runDirectRefresh failed: %v", err)
+	}
+}
+
+func TestLoadAppConfig_NotInitialized(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	cfg, err := loadAppConfig()
+	if err == nil {
+		t.Fatalf("expected error when dots is uninitialized, got cfg: %+v", cfg)
+	}
+	expectedMsg := "dots is not initialized. Please run 'dots init'"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error containing %q, got %v", expectedMsg, err)
 	}
 }
 

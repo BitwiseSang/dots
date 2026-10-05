@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,6 +10,9 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 )
+
+// ErrNotInitialized indicates that dots has not been initialized yet.
+var ErrNotInitialized = errors.New("dots is not initialized (configuration file not found)")
 
 type Config struct {
 	Editor   string        `toml:"editor"`
@@ -33,14 +37,18 @@ type DotfileSpec struct {
 }
 
 func DefaultConfig() *Config {
+	ed := os.Getenv("EDITOR")
+	if ed == "" {
+		ed = os.Getenv("VISUAL")
+	}
 	return &Config{
-		Editor:   "nvim",
-		RepoPath: "~/Documents/dotfiles",
+		Editor:   ed,
+		RepoPath: "",
 		Git: GitConfig{
 			AutoCommit: false,
 			AutoPush:   false,
 		},
-		Dotfiles: DefaultDotfiles(),
+		Dotfiles: []DotfileSpec{},
 	}
 }
 
@@ -108,7 +116,7 @@ func IsRemoteRepoInput(input string) bool {
 func NormalizeRepoPath(path string) string {
 	t := strings.TrimSpace(path)
 	if t == "" {
-		return "~/dotfiles"
+		return ""
 	}
 	if IsRemoteRepoInput(t) {
 		clean := strings.TrimSuffix(t, ".git")
@@ -132,24 +140,22 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return DefaultConfig(), nil
+			return nil, ErrNotInitialized
 		}
 		return nil, err
 	}
 
 	var raw map[string]any
-	_ = toml.Unmarshal(data, &raw)
-	_, hasDotfiles := raw["dotfiles"]
-
-	cfg := Config{
-		Editor:   "nvim",
-		RepoPath: "~/Documents/dotfiles",
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("corrupted configuration file: %w", err)
 	}
+
+	cfg := Config{}
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	if !hasDotfiles {
-		cfg.Dotfiles = DefaultDotfiles()
+	if cfg.Dotfiles == nil {
+		cfg.Dotfiles = []DotfileSpec{}
 	}
 	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
 	cfg.SortDotfiles()
@@ -238,18 +244,16 @@ func LoadFromPath(configPath string) (*Config, error) {
 		return nil, err
 	}
 	var raw map[string]any
-	_ = toml.Unmarshal(data, &raw)
-	_, hasDotfiles := raw["dotfiles"]
-
-	cfg := Config{
-		Editor:   "nvim",
-		RepoPath: "~/Documents/dotfiles",
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("corrupted configuration file: %w", err)
 	}
+
+	cfg := Config{}
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
-	if !hasDotfiles {
-		cfg.Dotfiles = DefaultDotfiles()
+	if cfg.Dotfiles == nil {
+		cfg.Dotfiles = []DotfileSpec{}
 	}
 	cfg.RepoPath = NormalizeRepoPath(cfg.RepoPath)
 	cfg.SortDotfiles()

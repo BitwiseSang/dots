@@ -36,8 +36,8 @@ func TestNormalizeRepoPath(t *testing.T) {
 	}
 
 	// Empty
-	if norm := NormalizeRepoPath(""); norm != "~/dotfiles" {
-		t.Errorf("expected ~/dotfiles, got %s", norm)
+	if norm := NormalizeRepoPath(""); norm != "" {
+		t.Errorf("expected empty string, got %s", norm)
 	}
 
 	// Normal path
@@ -140,5 +140,35 @@ func TestSortDotfiles(t *testing.T) {
 	cfg.AddDotfile(DotfileSpec{Name: "aria2"})
 	if cfg.Dotfiles[1].Name != "aria2" {
 		t.Errorf("expected aria2 to be sorted at index 1, got %+v", cfg.Dotfiles)
+	}
+}
+
+func TestLoad_NotInitialized(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	cfg, err := Load()
+	if err == nil {
+		t.Fatalf("expected ErrNotInitialized, got nil error with cfg: %+v", cfg)
+	}
+	if err != ErrNotInitialized {
+		t.Errorf("expected ErrNotInitialized, got %v", err)
+	}
+}
+
+func TestDefaultConfig_Empty(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.RepoPath != "" {
+		t.Errorf("expected empty RepoPath, got %s", cfg.RepoPath)
+	}
+	if len(cfg.Dotfiles) != 0 {
+		t.Errorf("expected 0 dotfiles in DefaultConfig, got %d", len(cfg.Dotfiles))
+	}
+}
+
+func TestDefaultDotfiles_Empty(t *testing.T) {
+	dots := DefaultDotfiles()
+	if len(dots) != 0 {
+		t.Errorf("expected 0 dotfiles in DefaultDotfiles, got %d", len(dots))
 	}
 }

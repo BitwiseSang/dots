@@ -42,11 +42,6 @@ func Header(width, height, step int, repoPath string) string {
 		width = 80
 	}
 
-	if repoPath == "" {
-		repoPath = "~/Documents/dotfiles"
-	}
-	absRepoPath := config.ExpandPath(repoPath)
-
 	hatchStyle := lipgloss.NewStyle().Foreground(theme.Hatch)
 	brandStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary)
 	versionStyle := lipgloss.NewStyle().Foreground(theme.Subtle)
@@ -71,13 +66,17 @@ func Header(width, height, step int, repoPath string) string {
 		hatchStyle.Render(strings.Repeat("/", rightHatchLen))
 
 	// Breadcrumb: branch • dotfiles repo path
-	branch := getGitBranchIn(absRepoPath)
-
-	displayPath := absRepoPath
-	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(displayPath, home) {
-		displayPath = "~" + displayPath[len(home):]
+	displayPath := "uninitialized"
+	branch := "-"
+	if repoPath != "" {
+		absRepoPath := config.ExpandPath(repoPath)
+		branch = getGitBranchIn(absRepoPath)
+		displayPath = absRepoPath
+		if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(displayPath, home) {
+			displayPath = "~" + displayPath[len(home):]
+		}
+		displayPath = filepath.Clean(displayPath)
 	}
-	displayPath = filepath.Clean(displayPath)
 
 	breadcrumb := fmt.Sprintf("%s %s %s %s %s",
 		lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true).Render(theme.IconGit),

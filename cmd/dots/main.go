@@ -193,6 +193,9 @@ func configArgsFunction(cmd *cobra.Command, args []string, toComplete string) ([
 }
 
 func loadAppConfig() (*config.Config, error) {
+	if !config.ConfigExists() {
+		return nil, fmt.Errorf("dots is not initialized. Please run 'dots init' to set up your dotfiles repository first")
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
@@ -202,6 +205,9 @@ func loadAppConfig() (*config.Config, error) {
 	}
 	if repoFlag != "" {
 		cfg.RepoPath = repoFlag
+	}
+	if cfg.RepoPath == "" {
+		return nil, fmt.Errorf("no repository path configured in dots. Please run 'dots init' to set up your repository")
 	}
 	if config.ConfigExists() && cfg.RepoPath != "" {
 		_, _ = dotfile.RefreshDatabase(cfg)
@@ -214,9 +220,21 @@ func runTUI(initialView views.ViewType) error {
 }
 
 func runTUIWithPath(initialView views.ViewType, path string) error {
-	cfg, err := loadAppConfig()
-	if err != nil {
-		return err
+	var cfg *config.Config
+	var err error
+	if initialView == views.ViewWizard && !config.ConfigExists() {
+		cfg = config.DefaultConfig()
+		if editorFlag != "" {
+			cfg.Editor = editorFlag
+		}
+		if repoFlag != "" {
+			cfg.RepoPath = repoFlag
+		}
+	} else {
+		cfg, err = loadAppConfig()
+		if err != nil {
+			return err
+		}
 	}
 
 	appModel := ui.NewAppWithPath(cfg, initialView, path)
@@ -419,18 +437,9 @@ func runDirectRemove(name string, flags removeFlags) error {
 }
 
 func runDirectRefresh() error {
-	cfg, err := config.Load()
+	cfg, err := loadAppConfig()
 	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
-	}
-	if editorFlag != "" {
-		cfg.Editor = editorFlag
-	}
-	if repoFlag != "" {
-		cfg.RepoPath = repoFlag
-	}
-	if cfg.RepoPath == "" {
-		return fmt.Errorf("no repository configured. Run 'dots init' first")
+		return err
 	}
 
 	fmt.Printf("%s Scanning repository: %s...\n\n",
