@@ -6,6 +6,8 @@ Tea](https://github.com/charmbracelet/bubbletea),
 [Bubbles](https://github.com/charmbracelet/bubbles), and [Lip
 Gloss](https://github.com/charmbracelet/lipgloss).
 
+![dots TUI homepage](./docs/images/homepage.png)
+
 ---
 
 ## Features
@@ -44,7 +46,8 @@ Gloss](https://github.com/charmbracelet/lipgloss).
 
 ### 1. One-Line Shell Installer (Recommended)
 
-Install the latest pre-compiled binary on Linux or macOS without needing Go or build tools:
+Install the latest pre-compiled binary on Linux or macOS without needing Go or
+build tools:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/BitwiseSang/dots/main/install.sh | bash
@@ -52,9 +55,11 @@ curl -fsSL https://raw.githubusercontent.com/BitwiseSang/dots/main/install.sh | 
 
 ### 2. Pre-Compiled Binaries & Packages (.deb / .rpm)
 
-Download standalone binaries, `.deb`, or `.rpm` packages for your platform from the [GitHub Releases](https://github.com/BitwiseSang/dots/releases) page.
+Download standalone binaries, `.deb`, or `.rpm` packages for your platform from
+the [GitHub Releases](https://github.com/BitwiseSang/dots/releases) page.
 
-- **Linux (`amd64`, `arm64`)**: Standalone binary, Debian/Ubuntu (`.deb`), and Fedora/RHEL (`.rpm`)
+- **Linux (`amd64`, `arm64`)**: Standalone binary, Debian/Ubuntu (`.deb`), and
+  Fedora/RHEL (`.rpm`)
 - **macOS (`Apple Silicon`, `Intel`)**: Standalone binary
 
 ### 3. Using Go
@@ -73,7 +78,8 @@ cd dots
 make install
 ```
 
-This compiles the binary and installs it to `~/.local/bin/dots`. Ensure `~/.local/bin` is in your `$PATH`.
+This compiles the binary and installs it to `~/.local/bin/dots`. Ensure
+`~/.local/bin` is in your `$PATH`.
 
 ---
 
